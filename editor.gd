@@ -63,6 +63,13 @@ const MAX_UNDO_STEPS := 100
 const EXPORT_PATH := "user://g-logical-level.txt"
 var status_text := "Click a gate button, then connect ports."
 var font: Font
+var toolbar_panel: PanelContainer
+var gate_toolbar: HFlowContainer
+var run_button: Button
+var save_button: Button
+var load_button: Button
+var physical_button: Button
+var toolbar_height := TOPBAR_HEIGHT
 var lamp_color_picker: ColorPickerButton
 var save_slot_menu: PopupMenu
 var current_save_slot := 1
@@ -80,11 +87,16 @@ func _ready() -> void:
 	lamp_color_picker.tooltip_text = "Adjust selected lamp color"
 	lamp_color_picker.custom_minimum_size = Vector2(54, 28)
 	lamp_color_picker.color_changed.connect(_on_lamp_color_changed)
-	add_child(lamp_color_picker)
+	build_toolbar()
 	update_lamp_color_picker()
 	queue_redraw()
 
 func _process(_delta: float) -> void:
+	toolbar_height = toolbar_panel.size.y
+	run_button.text = "RUN" if running else "PAUSE"
+	run_button.button_pressed = running
+	save_button.text = "SAVE %d" % current_save_slot
+	load_button.text = "LOAD %d" % current_save_slot
 	update_ticks_per_second()
 	update_lamp_color_picker()
 	if running:
@@ -95,9 +107,9 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	var size := get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, size), Color("#111722"))
-	draw_rect(Rect2(0, TOPBAR_HEIGHT, size.x, size.y - TOPBAR_HEIGHT), Color("#15271f") if physical_mode else Color("#151c29"))
+	draw_rect(Rect2(0, toolbar_height, size.x, maxf(0.0, size.y - toolbar_height)), Color("#15271f") if physical_mode else Color("#151c29"))
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
-	var canvas_top_left := screen_to_canvas(Vector2(0, TOPBAR_HEIGHT))
+	var canvas_top_left := screen_to_canvas(Vector2(0, toolbar_height))
 	var canvas_bottom_right := screen_to_canvas(size)
 	var first_grid_x := floori(canvas_top_left.x / GRID_SIZE) - 1
 	var last_grid_x := ceili(canvas_bottom_right.x / GRID_SIZE) + 1
@@ -123,52 +135,139 @@ func _draw() -> void:
 	if selecting:
 		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), Color("#6ca9e8", 0.18), true)
 		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), Color("#8bc5f5"), false, 1.0)
-	if not physical_mode and pending_output["gate"] >= 0 and get_local_mouse_position().y >= TOPBAR_HEIGHT:
+	if not physical_mode and pending_output["gate"] >= 0 and get_local_mouse_position().y >= toolbar_height:
 		draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 		var start := port_position(pending_output["gate"], false, pending_output["port"])
 		draw_line(start, screen_to_canvas(get_local_mouse_position()), Color("#f5c451"), 3.0 / canvas_zoom)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	draw_rect(Rect2(0, 0, size.x, TOPBAR_HEIGHT), Color("#202b3d"))
-	draw_string(font, Vector2(18, 27), "G-LOGICAL", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("#f2f5fb"))
-	draw_string(font, Vector2(18, 51), "Gunsaw logic editor", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#95a5bd"))
-	_draw_toolbar()
 	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  %s" % [tick, ticks_per_second, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
 
-func _draw_toolbar() -> void:
-	var physical_rect := Rect2(88, 12, 84, 28)
-	draw_rect(physical_rect, Color("#3d7655") if physical_mode else Color("#34445d"), true)
-	draw_string(font, physical_rect.position + Vector2(7, 19), "PHYSICAL", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#f1f5fa"))
-	var x := 180.0
-	var select_rect := Rect2(x, 12, 82, 28)
-	draw_rect(select_rect, Color("#4875a5") if active_tool == "SELECT" else Color("#34445d"), true)
-	draw_string(font, select_rect.position + Vector2(8, 19), "SELECT", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#f1f5fa"))
-	x += select_rect.size.x + 6
+func build_toolbar() -> void:
+	var layer := CanvasLayer.new()
+	add_child(layer)
+	toolbar_panel = PanelContainer.new()
+	layer.add_child(toolbar_panel)
+	toolbar_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color("#202b3d")
+	background.content_margin_left = 12
+	background.content_margin_right = 12
+	background.content_margin_top = 10
+	background.content_margin_bottom = 10
+	toolbar_panel.add_theme_stylebox_override("panel", background)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 8)
+	toolbar_panel.add_child(rows)
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 24)
+	rows.add_child(header)
+	var branding := VBoxContainer.new()
+	branding.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	branding.add_theme_constant_override("separation", 2)
+	header.add_child(branding)
+	var title := Label.new()
+	title.text = "G-LOGICAL"
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", Color("#f2f5fb"))
+	branding.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = "Gunsaw logic editor"
+	subtitle.add_theme_font_size_override("font_size", 13)
+	subtitle.add_theme_color_override("font_color", Color("#95a5bd"))
+	branding.add_child(subtitle)
+	var tools := HBoxContainer.new()
+	tools.add_theme_constant_override("separation", 6)
+	tools.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(tools)
+	physical_button = toolbar_button(tools, "PHYSICAL", toggle_physical_mode)
+	physical_button.toggle_mode = true
+	physical_button.add_theme_stylebox_override("pressed", toolbar_button_style(Color("#3d7655")))
+	var select_button := toolbar_button(tools, "SELECT", func():
+		active_tool = "SELECT"
+		status_text = "Selection tool active."
+	)
+	select_button.toggle_mode = true
+	select_button.set_pressed_no_signal(true)
+	select_button.pressed.connect(func(): select_button.set_pressed_no_signal(true))
+	tools.add_child(lamp_color_picker)
+	var actions := HBoxContainer.new()
+	actions.size_flags_horizontal = Control.SIZE_FILL
+	actions.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	actions.alignment = BoxContainer.ALIGNMENT_END
+	actions.add_theme_constant_override("separation", 6)
+	header.add_child(actions)
+	save_button = toolbar_button(actions, "SAVE %d" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), true))
+	load_button = toolbar_button(actions, "LOAD %d" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), false))
+	var export_button := toolbar_button(actions, "EXPORT", export_gunsaw)
+	export_button.add_theme_stylebox_override("normal", toolbar_button_style(Color("#486b55")))
+	run_button = toolbar_button(actions, "PAUSE", func():
+		running = not running
+		run_button.text = "RUN" if running else "PAUSE"
+		status_text = "Simulation running." if running else "Simulation paused."
+	)
+	run_button.toggle_mode = true
+	run_button.add_theme_stylebox_override("pressed", toolbar_button_style(Color("#385e58")))
+	toolbar_button(actions, "STEP [Space]", simulate_tick)
+	gate_toolbar = HFlowContainer.new()
+	gate_toolbar.add_theme_constant_override("h_separation", 6)
+	gate_toolbar.add_theme_constant_override("v_separation", 6)
+	rows.add_child(gate_toolbar)
+	rebuild_gate_toolbar()
+
+func toolbar_button(parent: Control, text: String, action: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size = Vector2(82, 28)
+	button.add_theme_font_size_override("font_size", 12)
+	button.add_theme_color_override("font_color", Color("#f1f5fa"))
+	button.add_theme_color_override("font_hover_color", Color("#f1f5fa"))
+	button.add_theme_color_override("font_pressed_color", Color("#f1f5fa"))
+	button.add_theme_stylebox_override("normal", toolbar_button_style(Color("#34445d")))
+	button.add_theme_stylebox_override("hover", toolbar_button_style(Color("#405571")))
+	button.add_theme_stylebox_override("pressed", toolbar_button_style(Color("#4875a5")))
+	button.add_theme_stylebox_override("hover_pressed", toolbar_button_style(Color("#4875a5")))
+	button.focus_mode = Control.FOCUS_NONE
+	button.pressed.connect(action)
+	parent.add_child(button)
+	return button
+
+func toolbar_button_style(color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	return style
+
+func toggle_physical_mode() -> void:
+	physical_mode = not physical_mode
+	physical_button.button_pressed = physical_mode
+	selected_gates.clear()
+	selected_gate = -1
+	selected_wire = -1
+	pending_output = {"gate": -1, "port": -1}
+	selecting = false
+	status_text = "Physical mode enabled." if physical_mode else "Editor mode enabled."
+	rebuild_gate_toolbar()
+	queue_redraw()
+
+func rebuild_gate_toolbar() -> void:
+	for child in gate_toolbar.get_children():
+		gate_toolbar.remove_child(child)
+		child.queue_free()
 	if physical_mode:
-		var tile_rect := Rect2(x, 12, 108, 28)
-		draw_rect(tile_rect, Color("#34445d"), true)
-		draw_string(font, tile_rect.position + Vector2(8, 19), "WHITE TILE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#f1f5fa"))
-		x += tile_rect.size.x + 6
+		toolbar_button(gate_toolbar, "WHITE TILE", add_white_tile)
+		return
 	for i in range(GATE_TYPES.size()):
-		var gate_type: Dictionary = GATE_TYPES[i]
-		if physical_mode:
-			continue
-		var rect := Rect2(x, 12, 82 if gate_type["name"].length() < 6 else 108, 28)
-		draw_rect(rect, Color("#34445d") if i != selected_gate else Color("#4875a5"), true)
-		draw_string(font, rect.position + Vector2(8, 19), gate_type["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#f1f5fa"))
-		x += rect.size.x + 6
-		if x > get_viewport_rect().size.x - 240:
-			break
-	draw_rect(Rect2(get_viewport_rect().size.x - 220, 12, 92, 28), Color("#385e58") if running else Color("#34445d"), true)
-	draw_string(font, Vector2(get_viewport_rect().size.x - 208, 31), "RUN" if running else "PAUSE", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
-	draw_rect(Rect2(get_viewport_rect().size.x - 120, 12, 105, 28), Color("#34445d"), true)
-	draw_string(font, Vector2(get_viewport_rect().size.x - 108, 31), "STEP  [Space]", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
-	draw_rect(Rect2(get_viewport_rect().size.x - 470, 12, 70, 28), Color("#34445d"), true)
-	draw_string(font, Vector2(get_viewport_rect().size.x - 458, 31), "SAVE %d" % current_save_slot, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
-	draw_rect(Rect2(get_viewport_rect().size.x - 395, 12, 70, 28), Color("#34445d"), true)
-	draw_string(font, Vector2(get_viewport_rect().size.x - 383, 31), "LOAD %d" % current_save_slot, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
-	draw_rect(Rect2(get_viewport_rect().size.x - 320, 12, 70, 28), Color("#486b55"), true)
-	draw_string(font, Vector2(get_viewport_rect().size.x - 310, 31), "EXPORT", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color.WHITE)
-	draw_string(font, Vector2(180, 58), "CLK IN feeds every CLK OUT on export. Select or drag nodes; connect output -> input.", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#9eacc0"))
+		var button := toolbar_button(gate_toolbar, GATE_TYPES[i]["name"], func():
+			if Input.is_key_pressed(KEY_SHIFT) and not selected_gates.is_empty():
+				swap_selected_gates(i)
+			else:
+				add_gate(i)
+		)
+		button.custom_minimum_size.x = 82 if GATE_TYPES[i]["name"].length() < 6 else 108
+		button.tooltip_text = "Click to add; Shift-click to swap selected gates."
 
 func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
@@ -256,7 +355,6 @@ func screen_to_canvas(pos: Vector2) -> Vector2:
 func update_lamp_color_picker() -> void:
 	if lamp_color_picker == null:
 		return
-	lamp_color_picker.position = Vector2(get_viewport_rect().size.x - 550, 12)
 	var is_lamp_selected: bool = selected_gate >= 0 and selected_gate < gates.size() and gates[selected_gate]["type_id"] == "MP/IO/LAMP"
 	lamp_color_picker.visible = is_lamp_selected
 	if is_lamp_selected and lamp_color_picker.color.to_html(false) != gates[selected_gate].get("lamp_color", "FFD23F"):
@@ -271,7 +369,7 @@ func _on_lamp_color_changed(color: Color) -> void:
 	gates[selected_gate]["lamp_color"] = color.to_html(false)
 	queue_redraw()
 
-func _input(event: InputEvent) -> void:
+func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		if event.ctrl_pressed and event.alt_pressed and event.shift_pressed and event.keycode == KEY_O:
 			open_user_folder()
@@ -401,59 +499,8 @@ func _on_save_slot_menu_id_pressed(action_id: int) -> void:
 	elif action_id >= 11 and action_id < 11 + SAVE_SLOT_COUNT:
 		load_editor(action_id - 10)
 
-func handle_press(pos: Vector2, swap_selected := false) -> void:
-	if pos.y < TOPBAR_HEIGHT:
-		var physical_rect := Rect2(88, 12, 84, 28)
-		if physical_rect.has_point(pos):
-			physical_mode = not physical_mode
-			selected_gates.clear()
-			selected_gate = -1
-			selected_wire = -1
-			pending_output = {"gate": -1, "port": -1}
-			selecting = false
-			status_text = "Physical mode enabled." if physical_mode else "Editor mode enabled."
-			queue_redraw()
-			return
-		if pos.x >= get_viewport_rect().size.x - 320 and pos.x < get_viewport_rect().size.x - 250:
-			export_gunsaw()
-			return
-		if pos.x >= get_viewport_rect().size.x - 470 and pos.x < get_viewport_rect().size.x - 400:
-			open_save_slot_menu(pos, true)
-			return
-		if pos.x >= get_viewport_rect().size.x - 395 and pos.x < get_viewport_rect().size.x - 325:
-			open_save_slot_menu(pos, false)
-			return
-		if pos.x >= get_viewport_rect().size.x - 220 and pos.x < get_viewport_rect().size.x - 120:
-			running = not running
-			status_text = "Simulation running." if running else "Simulation paused."
-			return
-		if pos.x >= get_viewport_rect().size.x - 120:
-			simulate_tick()
-			return
-		var select_rect := Rect2(180, 12, 82, 28)
-		if select_rect.has_point(pos):
-			active_tool = "SELECT"
-			status_text = "Selection tool active."
-			queue_redraw()
-			return
-		if physical_mode:
-			var tile_rect := Rect2(268, 12, 108, 28)
-			if tile_rect.has_point(pos):
-				add_white_tile()
-				return
-		var button_x := 268.0
-		for i in range(GATE_TYPES.size()):
-			var gate_type: Dictionary = GATE_TYPES[i]
-			if physical_mode:
-				continue
-			var button_width := 82.0 if gate_type["name"].length() < 6 else 108.0
-			if Rect2(button_x, 12, button_width, 28).has_point(pos):
-				if swap_selected and not selected_gates.is_empty():
-					swap_selected_gates(i)
-					return
-				add_gate(i)
-				return
-			button_x += button_width + 6
+func handle_press(pos: Vector2, _swap_selected := false) -> void:
+	if pos.y < toolbar_height:
 		return
 	if physical_mode:
 		var physical_port := find_port(screen_to_canvas(pos))
@@ -675,7 +722,7 @@ func add_gate(type_index: int) -> void:
 		status_text = "Physical mode does not allow placing gates."
 		return
 	var viewport_size := get_viewport_rect().size
-	var view_center := Vector2(viewport_size.x * 0.5, TOPBAR_HEIGHT + (viewport_size.y - TOPBAR_HEIGHT) * 0.5)
+	var view_center := Vector2(viewport_size.x * 0.5, toolbar_height + (viewport_size.y - toolbar_height) * 0.5)
 	var spawn_position := snap_position(screen_to_canvas(view_center) - NODE_SIZE * 0.5)
 	var gate := {
 		"id": next_id,
@@ -712,7 +759,7 @@ func add_gate(type_index: int) -> void:
 
 func add_white_tile() -> void:
 	var viewport_size := get_viewport_rect().size
-	var view_center := Vector2(viewport_size.x * 0.5, TOPBAR_HEIGHT + (viewport_size.y - TOPBAR_HEIGHT) * 0.5)
+	var view_center := Vector2(viewport_size.x * 0.5, toolbar_height + (viewport_size.y - toolbar_height) * 0.5)
 	var tile := {
 		"id": next_id,
 		"type_id": "EDITOR/WHITETILE",
