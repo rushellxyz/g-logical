@@ -3,6 +3,14 @@ extends Node2D
 const GunsawLevelImporter = preload("res://gunsaw_level_importer.gd")
 const LogicSimulator = preload("res://logic_simulator.gd")
 const CanvasGeometry = preload("res://canvas_geometry.gd")
+const RUN_ICON = preload("res://icons/run.svg")
+const PAUSE_ICON = preload("res://icons/pause.svg")
+const STEP_ICON = preload("res://icons/step.svg")
+const RESET_ICON = preload("res://icons/reset.svg")
+const SAVE_ICON = preload("res://icons/save.svg")
+const LOAD_ICON = preload("res://icons/load.svg")
+const IMPORT_ICON = preload("res://icons/import.svg")
+const EXPORT_ICON = preload("res://icons/export.svg")
 
 const TOPBAR_HEIGHT := 72.0
 const GRID_SIZE := 32.0
@@ -112,10 +120,10 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	toolbar_height = toolbar_panel.size.y
-	run_button.text = "RUN" if running else "PAUSE"
+	update_run_button()
 	run_button.button_pressed = running
-	save_button.text = "SAVE %d" % current_save_slot
-	load_button.text = "LOAD %d" % current_save_slot
+	save_button.tooltip_text = "Save to slot %d [Ctrl+S]" % current_save_slot
+	load_button.tooltip_text = "Load from slot %d [Ctrl+O]" % current_save_slot
 	update_ticks_per_second()
 	update_lamp_color_picker()
 	if running:
@@ -178,9 +186,14 @@ func _draw() -> void:
 	if not physical_mode and pending_output["gate"] >= 0 and get_local_mouse_position().y >= toolbar_height:
 		draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 		var start := port_position(pending_output["gate"], false, pending_output["port"])
-		draw_line(start, screen_to_canvas(get_local_mouse_position()), Color("#f5c451"), 3.0 / canvas_zoom)
+		var end := screen_to_canvas(get_local_mouse_position())
+		if canvas_geometry.orthogonal:
+			var path := canvas_geometry.route(start, end, canvas_geometry.gate_bounds[pending_output["gate"]], Rect2(end, Vector2.ZERO), pending_output["port"], 0)
+			draw_polyline(path, Color("#f5c451"), 3.0 / canvas_zoom)
+		else:
+			draw_line(start, end, Color("#f5c451"), 3.0 / canvas_zoom)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Lines [L]: %s  |  %s" % [tick, ticks_per_second, "ON" if wires_visible else "OFF", status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
+	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Lines [L]: %s  |  Routing [Ctrl+L]: %s  |  %s" % [tick, ticks_per_second, "ON" if wires_visible else "OFF", "ORTHO" if canvas_geometry.orthogonal else "STRAIGHT", status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
 
 func build_toolbar() -> void:
 	var layer := CanvasLayer.new()
@@ -236,23 +249,23 @@ func build_toolbar() -> void:
 	actions.alignment = BoxContainer.ALIGNMENT_END
 	actions.add_theme_constant_override("separation", 6)
 	header.add_child(actions)
-	save_button = toolbar_button(actions, "SAVE %d" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), true))
-	load_button = toolbar_button(actions, "LOAD %d" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), false))
-	toolbar_button(actions, "IMPORT", func():
+	save_button = toolbar_icon_button(actions, SAVE_ICON, "Save to slot %d [Ctrl+S]" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), true))
+	load_button = toolbar_icon_button(actions, LOAD_ICON, "Load from slot %d [Ctrl+O]" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), false))
+	toolbar_icon_button(actions, IMPORT_ICON, "Import Gunsaw level [Ctrl+I]", func():
 		import_menu.position = DisplayServer.mouse_get_position()
 		import_menu.popup()
 	)
-	var export_button := toolbar_button(actions, "EXPORT", export_gunsaw)
+	var export_button := toolbar_icon_button(actions, EXPORT_ICON, "Export Gunsaw level [Ctrl+E]", export_gunsaw)
 	export_button.add_theme_stylebox_override("normal", toolbar_button_style(Color("#486b55")))
-	run_button = toolbar_button(actions, "PAUSE", func():
+	run_button = toolbar_icon_button(actions, RUN_ICON, "Run simulation", func():
 		running = not running
-		run_button.text = "RUN" if running else "PAUSE"
+		update_run_button()
 		status_text = "Simulation running." if running else "Simulation paused."
 	)
 	run_button.toggle_mode = true
 	run_button.add_theme_stylebox_override("pressed", toolbar_button_style(Color("#385e58")))
-	toolbar_button(actions, "STEP [Space]", simulate_tick)
-	var reset_button := toolbar_button(actions, "RESET", reset_simulation)
+	toolbar_icon_button(actions, STEP_ICON, "Advance one step [Space]", simulate_tick)
+	var reset_button := toolbar_icon_button(actions, RESET_ICON, "Stop simulation and restore initial component states", reset_simulation)
 	reset_button.add_theme_stylebox_override("normal", toolbar_button_style(Color("#963e45")))
 	reset_button.add_theme_stylebox_override("hover", toolbar_button_style(Color("#b54c54")))
 	reset_button.add_theme_stylebox_override("pressed", toolbar_button_style(Color("#752e35")))
@@ -279,6 +292,17 @@ func toolbar_button(parent: Control, text: String, action: Callable) -> Button:
 	button.pressed.connect(action)
 	parent.add_child(button)
 	return button
+
+func toolbar_icon_button(parent: Control, icon: Texture2D, tooltip: String, action: Callable) -> Button:
+	var button := toolbar_button(parent, "", action)
+	button.icon = icon
+	button.custom_minimum_size = Vector2(36, 28)
+	button.tooltip_text = tooltip
+	return button
+
+func update_run_button() -> void:
+	run_button.icon = PAUSE_ICON if running else RUN_ICON
+	run_button.tooltip_text = "Pause simulation" if running else "Run simulation"
 
 func toolbar_button_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
@@ -387,7 +411,10 @@ func _draw_wire(wire: Dictionary, selected: bool, wire_index: int) -> void:
 	var wire_color := Color("#f5c451") if high else Color("#71839d")
 	if selected:
 		wire_color = Color("#f28b82")
-	draw_line(a, b, wire_color, 5 if selected else (4 if high else 2))
+	if canvas_geometry.orthogonal:
+		draw_polyline(canvas_geometry.wire_paths[wire_index], wire_color, 5 if selected else (4 if high else 2))
+	else:
+		draw_line(a, b, wire_color, 5 if selected else (4 if high else 2))
 	draw_circle(a, 4, wire_color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -467,16 +494,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.keycode == KEY_ENTER:
 				status_text = "Comment editing finished."
 				return
-			if event.unicode > 0:
+			if event.unicode > 0 and not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
 				push_undo_state()
 				gates[selected_gate]["text"] += char(event.unicode)
 				queue_redraw()
 				return
-		if (event.physical_keycode == KEY_L or event.keycode == KEY_L) and not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
+		if (event.physical_keycode == KEY_L or event.keycode == KEY_L) and not event.alt_pressed and not event.meta_pressed:
 			if not event.echo:
-				wires_visible = not wires_visible
-				if not wires_visible:
-					selected_wire = -1
+				if event.ctrl_pressed:
+					canvas_geometry.orthogonal = not canvas_geometry.orthogonal
+					canvas_geometry.dirty = true
+					status_text = "Line routing: %s [Ctrl+L]." % ("orthogonal" if canvas_geometry.orthogonal else "straight")
+				else:
+					wires_visible = not wires_visible
+					if not wires_visible:
+						selected_wire = -1
 				queue_redraw()
 			return
 		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
@@ -841,10 +873,10 @@ func find_wire(pos: Vector2) -> int:
 	for i in range(wires.size() - 1, -1, -1):
 		if not canvas_geometry.wire_bounds[i].grow(9.0).has_point(pos):
 			continue
-		var start: Vector2 = canvas_geometry.wire_starts[i]
-		var end: Vector2 = canvas_geometry.wire_ends[i]
-		if Geometry2D.get_closest_point_to_segment(pos, start, end).distance_to(pos) <= 9.0:
-			return i
+		var path: PackedVector2Array = canvas_geometry.wire_paths[i]
+		for segment in range(path.size() - 1):
+			if Geometry2D.get_closest_point_to_segment(pos, path[segment], path[segment + 1]).distance_to(pos) <= 9.0:
+				return i
 	return -1
 
 func find_port(pos: Vector2) -> Dictionary:
@@ -1130,7 +1162,7 @@ func get_expanded_wires(source_wires: Array, include_clock_inputs := true) -> Ar
 func reset_simulation() -> void:
 	running = false
 	run_button.button_pressed = false
-	run_button.text = "PAUSE"
+	update_run_button()
 	tick = 0
 	ticks_in_tps_window = 0
 	ticks_per_second = 0.0
