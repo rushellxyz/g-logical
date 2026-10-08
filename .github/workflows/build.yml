@@ -1,0 +1,111 @@
+name: Desktop builds
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot and export templates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tools_dir="$RUNNER_TEMP/godot"
+          mkdir -p "$tools_dir"
+          gh release download "$GODOT_VERSION-stable" \
+            --repo godotengine/godot-builds \
+            --pattern "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \
+            --pattern "Godot_v${GODOT_VERSION}-stable_export_templates.tpz" \
+            --dir "$tools_dir"
+          unzip -q "$tools_dir/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -d "$tools_dir"
+          mv "$tools_dir/Godot_v${GODOT_VERSION}-stable_linux.x86_64" "$tools_dir/godot"
+          chmod +x "$tools_dir/godot"
+          echo "$tools_dir" >> "$GITHUB_PATH"
+          unzip -q "$tools_dir/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -d "$tools_dir"
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          mv "$tools_dir/templates" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+
+      - name: Import project
+        run: godot --headless --path . --editor --import
+
+      - name: Export desktop versions
+        run: |
+          set -euo pipefail
+          mkdir -p build/windows build/linux dist
+          godot --headless --path . --export-release "Windows Desktop" build/windows/g-logical.exe
+          godot --headless --path . --export-release "Linux" build/linux/g-logical.x86_64
+          godot --headless --path . --export-release "macOS" dist/g-logical-macos-universal.zip
+          test -s build/windows/g-logical.exe
+          test -s build/linux/g-logical.x86_64
+          test -s dist/g-logical-macos-universal.zip
+
+      - name: Package builds
+        run: |
+          set -euo pipefail
+          (cd build/windows && zip -q -r ../../dist/g-logical-windows-x86_64.zip .)
+          chmod +x build/linux/g-logical.x86_64
+          tar -czf dist/g-logical-linux-x86_64.tar.gz -C build/linux .
+          (cd dist && sha256sum *.zip *.tar.gz > SHA256SUMS.txt)
+
+      - name: Upload builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-builds
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-builds
+          path: dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          main_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          if [ "$main_sha" != "$GITHUB_SHA" ]; then
+            echo "Skipping release: a newer commit is already on main."
+            exit 0
+          fi
+          git tag -f latest "$GITHUB_SHA"
+          git push --force origin refs/tags/latest
+          printf 'Auto builds from main.\n\nCommit: %s\n\n' "$GITHUB_SHA" > "$RUNNER_TEMP/release-notes.md"
+          if gh release view latest > /dev/null 2>&1; then
+            gh release upload latest dist/* --clobber
+            gh release edit latest --title "G-LOGICAL latest" --latest \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create latest dist/* --verify-tag --latest \
+              --title "G-LOGICAL latest" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
