@@ -1,5 +1,7 @@
 extends Node2D
 
+const GunsawLevelImporter = preload("res://gunsaw_level_importer.gd")
+
 const TOPBAR_HEIGHT := 72.0
 const GRID_SIZE := 32.0
 const NODE_SIZE := Vector2(170, 92)
@@ -16,6 +18,7 @@ const GATE_TYPES := [
 	{"id": "MP/Logic/AND", "name": "AND", "inputs": ["A", "B"], "outputs": ["OUT"]},
 	{"id": "MP/Logic/OR", "name": "OR", "inputs": ["A", "B"], "outputs": ["OUT"]},
 	{"id": "MP/Logic/XOR", "name": "XOR", "inputs": ["A", "B"], "outputs": ["OUT"]},
+	{"id": "MP/Logic/XNOR", "name": "XNOR", "inputs": ["A", "B"], "outputs": ["OUT"]},
 	{"id": "MP/Logic/NAND", "name": "NAND", "inputs": ["A", "B"], "outputs": ["OUT"]},
 	{"id": "MP/Logic/NOR", "name": "NOR", "inputs": ["A", "B"], "outputs": ["OUT"]},
 	{"id": "MP/Logic/NOT", "name": "NOT", "inputs": ["IN"], "outputs": ["OUT"]},
@@ -72,6 +75,9 @@ var physical_button: Button
 var toolbar_height := TOPBAR_HEIGHT
 var lamp_color_picker: ColorPickerButton
 var save_slot_menu: PopupMenu
+var import_menu: PopupMenu
+var import_dialog: FileDialog
+var gunsaw_source_level: Dictionary = {}
 var current_save_slot := 1
 var undo_history: Array[Dictionary] = []
 var drag_undo_snapshot: Dictionary = {}
@@ -88,6 +94,7 @@ func _ready() -> void:
 	lamp_color_picker.custom_minimum_size = Vector2(54, 28)
 	lamp_color_picker.color_changed.connect(_on_lamp_color_changed)
 	build_toolbar()
+	setup_import_dialog()
 	update_lamp_color_picker()
 	queue_redraw()
 
@@ -198,6 +205,10 @@ func build_toolbar() -> void:
 	header.add_child(actions)
 	save_button = toolbar_button(actions, "SAVE %d" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), true))
 	load_button = toolbar_button(actions, "LOAD %d" % current_save_slot, func(): open_save_slot_menu(get_global_mouse_position(), false))
+	toolbar_button(actions, "IMPORT", func():
+		import_menu.position = DisplayServer.mouse_get_position()
+		import_menu.popup()
+	)
 	var export_button := toolbar_button(actions, "EXPORT", export_gunsaw)
 	export_button.add_theme_stylebox_override("normal", toolbar_button_style(Color("#486b55")))
 	run_button = toolbar_button(actions, "PAUSE", func():
@@ -208,6 +219,11 @@ func build_toolbar() -> void:
 	run_button.toggle_mode = true
 	run_button.add_theme_stylebox_override("pressed", toolbar_button_style(Color("#385e58")))
 	toolbar_button(actions, "STEP [Space]", simulate_tick)
+	var reset_button := toolbar_button(actions, "RESET", reset_simulation)
+	reset_button.add_theme_stylebox_override("normal", toolbar_button_style(Color("#963e45")))
+	reset_button.add_theme_stylebox_override("hover", toolbar_button_style(Color("#b54c54")))
+	reset_button.add_theme_stylebox_override("pressed", toolbar_button_style(Color("#752e35")))
+	reset_button.tooltip_text = "Stop simulation and restore initial component states."
 	gate_toolbar = HFlowContainer.new()
 	gate_toolbar.add_theme_constant_override("h_separation", 6)
 	gate_toolbar.add_theme_constant_override("v_separation", 6)
@@ -383,6 +399,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.ctrl_pressed and event.keycode == KEY_O:
 			load_editor()
 			return
+		if event.ctrl_pressed and event.keycode == KEY_I:
+			if event.shift_pressed:
+				apply_gunsaw_import(GunsawLevelImporter.import_text(DisplayServer.clipboard_get(), GATE_TYPES))
+			else:
+				import_dialog.popup_centered_ratio(0.7)
+			return
 		if event.ctrl_pressed and event.keycode == KEY_E:
 			export_gunsaw()
 			return
@@ -476,6 +498,69 @@ func _unhandled_input(event: InputEvent) -> void:
 		canvas_offset = pan_offset_start + event.position - pan_start
 		clamp_canvas_offset()
 		queue_redraw()
+
+func setup_import_dialog() -> void:
+	import_menu = PopupMenu.new()
+	import_menu.add_item("From file... [Ctrl+I]", 0)
+	import_menu.add_item("From clipboard [Ctrl+Shift+I]", 1)
+	import_menu.id_pressed.connect(func(id: int):
+		if id == 0:
+			import_dialog.popup_centered_ratio(0.7)
+		else:
+			apply_gunsaw_import(GunsawLevelImporter.import_text(DisplayServer.clipboard_get(), GATE_TYPES))
+	)
+	add_child(import_menu)
+	import_dialog = FileDialog.new()
+	import_dialog.title = "Import Gunsaw level"
+	import_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	import_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	import_dialog.filters = PackedStringArray(["*.txt,*.json; Gunsaw levels", "*; All files"])
+	import_dialog.use_native_dialog = true
+	import_dialog.file_selected.connect(func(path: String):
+		apply_gunsaw_import(GunsawLevelImporter.import_file(path, GATE_TYPES))
+	)
+	add_child(import_dialog)
+
+func apply_gunsaw_import(result: Dictionary) -> void:
+	if result.has("error"):
+		status_text = "Import failed: %s" % result["error"]
+		queue_redraw()
+		return
+	push_undo_state()
+	running = false
+	physical_mode = false
+	physical_button.button_pressed = false
+	rebuild_gate_toolbar()
+	gates.assign(result["gates"])
+	wires.assign(result["wires"])
+	gunsaw_source_level = result["source_level"]
+	next_id = result["next_id"]
+	tick = 0
+	selected_gates.clear()
+	selected_gate = -1
+	selected_wire = -1
+	pending_output = {"gate": -1, "port": -1}
+	dragging_gate = -1
+	resizing_gate = -1
+	button_candidate = -1
+	selecting = false
+	panning = false
+	drag_group_origins.clear()
+	drag_undo_snapshot.clear()
+	drag_undo_recorded = false
+	canvas_zoom = 1.0
+	canvas_offset = Vector2.ZERO
+	if not gates.is_empty():
+		var bounds := Rect2(gates[0]["position"], gate_size(gates[0]))
+		for gate in gates:
+			bounds = bounds.merge(Rect2(gate["position"], gate_size(gate)))
+		var viewport_size := get_viewport_rect().size
+		var available := Vector2(maxf(1.0, viewport_size.x - 64), maxf(1.0, viewport_size.y - toolbar_height - 80))
+		canvas_zoom = clampf(minf(available.x / bounds.size.x, available.y / bounds.size.y), 0.25, 1.0)
+		var center := Vector2(viewport_size.x * 0.5, toolbar_height + (viewport_size.y - toolbar_height) * 0.5)
+		canvas_offset = center - bounds.get_center() * canvas_zoom - Vector2(0, TOPBAR_HEIGHT * (1.0 - canvas_zoom))
+	status_text = "Imported %d components and %d wires; %d other objects preserved for export. Ctrl+Z to undo." % [gates.size(), wires.size(), result["preserved_count"]]
+	queue_redraw()
 
 func open_user_folder() -> void:
 	var user_folder := ProjectSettings.globalize_path("user://")
@@ -618,6 +703,8 @@ func swap_selected_gates(type_index: int) -> void:
 	push_undo_state()
 	for gate_index in selected_gates:
 		var gate: Dictionary = gates[gate_index]
+		for key in ["gunsaw_part", "gunsaw_data", "gunsaw_input_ids", "gunsaw_output_ids", "gunsaw_external_inputs"]:
+			gate.erase(key)
 		gate["type_id"] = definition["id"]
 		gate["name"] = definition["name"]
 		gate["input_names"] = definition["inputs"].duplicate()
@@ -838,6 +925,11 @@ func duplicate_selection(include_external_outputs := false) -> void:
 	for source_index in source_gates:
 		var duplicate_gate: Dictionary = gates[source_index].duplicate(true)
 		duplicate_gate["id"] = next_id
+		duplicate_gate.erase("gunsaw_output_ids")
+		if duplicate_gate.has("gunsaw_part") and duplicate_gate["gunsaw_part"]["path"] == "MP/CustomProp":
+			var payload: Dictionary = JSON.parse_string(duplicate_gate["gunsaw_part"]["team"])
+			payload["uid"] = "editor-%d" % next_id
+			duplicate_gate["gunsaw_part"]["team"] = JSON.stringify(payload)
 		duplicate_gate["position"] = duplicate_gate["position"] + duplicate_offset
 		next_id += 1
 		gate_map[source_index] = gates.size()
@@ -976,6 +1068,26 @@ func get_expanded_wires(source_wires: Array, include_clock_inputs := true) -> Ar
 			})
 	return expanded
 
+func reset_simulation() -> void:
+	running = false
+	run_button.button_pressed = false
+	run_button.text = "PAUSE"
+	tick = 0
+	ticks_in_tps_window = 0
+	ticks_per_second = 0.0
+	tps_window_start_ms = Time.get_ticks_msec()
+	button_candidate = -1
+	for gate in gates:
+		gate["inputs"].fill(false)
+		gate["outputs"].fill(false)
+		gate["previous_inputs"].fill(false)
+		gate["pulse_pending"] = false
+		gate["memory"] = int(gate.get("gunsaw_data", {}).get("initialQ", 0)) != 0
+		if gate["type_id"] == "MP/IO/LAMP":
+			gate["state"] = true
+	status_text = "Simulation reset."
+	queue_redraw()
+
 func simulate_tick() -> void:
 	# Compute all outputs from the inputs captured during the previous tick.
 	for gate in gates:
@@ -990,12 +1102,21 @@ func simulate_tick() -> void:
 			"MP/Logic/AND": result = inputs[0] and inputs[1]
 			"MP/Logic/OR": result = inputs[0] or inputs[1]
 			"MP/Logic/XOR": result = inputs[0] != inputs[1]
+			"MP/Logic/XNOR": result = inputs[0] == inputs[1]
 			"MP/Logic/NAND": result = not (inputs[0] and inputs[1])
 			"MP/Logic/NOR": result = not (inputs[0] or inputs[1])
 			"MP/Logic/NOT": result = not inputs[0]
-			"MP/Logic/CONST": result = true
-			"MP/Logic/CLOCK": result = tick % 2 == 0
-			"MP/Logic/EDGE": result = inputs[0] != gate["previous_inputs"][0]
+			"MP/Logic/CONST": result = int(gate.get("gunsaw_data", {}).get("value", 1)) != 0
+			"MP/Logic/CLOCK":
+				if gate.has("gunsaw_data"):
+					var data: Dictionary = gate["gunsaw_data"]
+					var half_period := maxf(0.02, float(data.get("period", 1.0)) * 0.5)
+					result = (int(data.get("initialHigh", 0)) != 0) != (floori((tick + 1) * 0.02 / half_period) % 2 != 0)
+				else:
+					result = tick % 2 == 0
+			"MP/Logic/EDGE":
+				var mode: int = int(gate.get("gunsaw_data", {}).get("mode", 2))
+				result = (mode != 1 and inputs[0] and not gate["previous_inputs"][0]) or (mode != 0 and not inputs[0] and gate["previous_inputs"][0])
 			"MP/Logic/SR": result = gate["memory"] if inputs[0] and inputs[1] else (true if inputs[0] else false if inputs[1] else gate["memory"])
 			"MP/Logic/DFF": result = inputs[0] if inputs[1] and not gate["previous_inputs"][1] else gate["memory"]
 			"MP/Logic/JK": result = (not gate["memory"]) if inputs[2] and not gate["previous_inputs"][2] and inputs[0] and inputs[1] else (true if inputs[2] and not gate["previous_inputs"][2] and inputs[0] else false if inputs[2] and not gate["previous_inputs"][2] and inputs[1] else gate["memory"])
@@ -1059,11 +1180,14 @@ func clamp_canvas_offset() -> void:
 
 func create_undo_snapshot() -> Dictionary:
 	return {
+		"gunsaw_source_level": gunsaw_source_level.duplicate(true),
 		"gates": gates.duplicate(true),
 		"wires": wires.duplicate(true),
 		"tick": tick,
 		"next_id": next_id,
 		"canvas_offset": canvas_offset,
+		"canvas_zoom": canvas_zoom,
+		"physical_mode": physical_mode,
 		"selected_gates": selected_gates.duplicate(),
 		"selected_gate": selected_gate,
 		"selected_wire": selected_wire,
@@ -1089,11 +1213,17 @@ func undo_last_action() -> void:
 		status_text = "Nothing to undo."
 		return
 	var snapshot: Dictionary = undo_history.pop_back()
+	gunsaw_source_level = snapshot.get("gunsaw_source_level", {}).duplicate(true)
 	gates.assign(snapshot["gates"])
 	wires.assign(snapshot["wires"])
 	tick = snapshot["tick"]
 	next_id = snapshot["next_id"]
 	canvas_offset = snapshot["canvas_offset"]
+	canvas_zoom = snapshot.get("canvas_zoom", canvas_zoom)
+	if physical_mode != snapshot.get("physical_mode", physical_mode):
+		physical_mode = snapshot["physical_mode"]
+		physical_button.button_pressed = physical_mode
+		rebuild_gate_toolbar()
 	selected_gates.clear()
 	for gate_index in snapshot["selected_gates"]:
 		selected_gates.append(gate_index)
@@ -1141,10 +1271,11 @@ func save_editor(slot: int = current_save_slot) -> void:
 		"tick": tick,
 		"next_id": next_id,
 		"canvas_offset": [canvas_offset.x, canvas_offset.y],
+		"gunsaw_source_level": gunsaw_source_level,
 		"gates": saved_gates,
 		"wires": wires
 	}
-	file.store_string(JSON.stringify(document, "\t"))
+	file.store_string(GunsawLevelImporter.stringify_json(document, "\t"))
 	file.close()
 	status_text = "Editor saved to Slot %d (%s)." % [current_save_slot, save_path]
 
@@ -1203,7 +1334,7 @@ func load_editor(slot: int = current_save_slot) -> void:
 		if loaded_gate["type_id"] == "MP/IO/LAMP":
 			loaded_gate["state"] = true
 			loaded_gate["lamp_color"] = str(loaded_gate.get("lamp_color", "FFD23F")).trim_prefix("#")
-		loaded_gate["memory"] = false
+		loaded_gate["memory"] = int(loaded_gate.get("gunsaw_data", {}).get("initialQ", 0)) != 0
 		var loaded_outputs: Array = []
 		var loaded_inputs: Array = []
 		var loaded_previous_inputs: Array = []
@@ -1236,6 +1367,7 @@ func load_editor(slot: int = current_save_slot) -> void:
 	dragging_gate = -1
 	pending_output = {"gate": -1, "port": -1}
 	clamp_canvas_offset()
+	gunsaw_source_level = parsed.get("gunsaw_source_level", {}).duplicate(true)
 	status_text = "Editor loaded from Slot %d (%s)." % [current_save_slot, save_path]
 	queue_redraw()
 
@@ -1262,16 +1394,24 @@ func export_gunsaw() -> void:
 		return
 	var export_wires := get_expanded_wires(wires, false)
 	var output_ids: Array = []
-	var next_activation_id := 1
+	var next_activation_id := maxi(1, GunsawLevelImporter.largest_id(gunsaw_source_level) + 1)
+	for gate in gates:
+		next_activation_id = maxi(next_activation_id, GunsawLevelImporter.largest_id(gate.get("gunsaw_part", {})) + 1)
 	for gate_index in range(gates.size()):
 		var gate: Dictionary = gates[gate_index]
 		var gate_outputs: Array = []
-		for _output_name in gate["output_names"]:
-			if gate["type_id"] == "MP/IO/BUTTON":
-				gate_outputs.append(1000 + gate_index)
-			else:
-				gate_outputs.append(next_activation_id)
+		for port_index in range(gate["output_names"].size()):
+			var imported_ids: Array = gate.get("gunsaw_output_ids", [])
+			var channel: int = int(imported_ids[port_index]) if port_index < imported_ids.size() else -1
+			var connected := false
+			for wire in export_wires:
+				if wire["from_gate"] == gate_index and wire["from_port"] == port_index:
+					connected = true
+					break
+			if channel < 0 and (connected or port_index >= imported_ids.size()):
+				channel = next_activation_id
 				next_activation_id += 1
+			gate_outputs.append(channel)
 		output_ids.append(gate_outputs)
 	# Outputs that feed the same input must share one activation ID in the
 	# exported level so every connection is represented.
@@ -1283,11 +1423,13 @@ func export_gunsaw() -> void:
 				output_ids[other_wire["from_gate"]][other_wire["from_port"]] = source_id
 
 	var parts: Array = []
+	var exported_gate_indices: Array[int] = []
 	var exported_count := 0
 	for gate_index in range(gates.size()):
 		var gate: Dictionary = gates[gate_index]
 		if not gate["export"]:
 			continue
+		exported_gate_indices.append(gate_index)
 		if gate["type_id"] == "MP/IO/BUTTON":
 			parts.append({
 				"pos": {"x": gate["position"].x / 320.0, "y": -gate["position"].y / 320.0},
@@ -1353,13 +1495,20 @@ func export_gunsaw() -> void:
 			"force": {"x": 0.0, "y": 0.0}
 		})
 		exported_count += 1
+	for part_index in range(parts.size()):
+		parts[part_index] = GunsawLevelImporter.merge_exported_part(gates[exported_gate_indices[part_index]], parts[part_index])
 	var level := {
 		"lightIntensity": 1.0,
 		"lightColor": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
 		"hasBackground": false,
 		"parts": parts
 	}
-	var json := JSON.stringify(level)
+	if not gunsaw_source_level.is_empty():
+		var preserved_parts: Array = gunsaw_source_level.get("parts", []).duplicate(true)
+		preserved_parts.append_array(parts)
+		level = gunsaw_source_level.duplicate(true)
+		level["parts"] = preserved_parts
+	var json := GunsawLevelImporter.stringify_json(level)
 	var zlib_compressed: PackedByteArray = json.to_utf8_buffer().compress(FileAccess.COMPRESSION_DEFLATE)
 	if zlib_compressed.size() < 6:
 		status_text = "Export failed: compression produced invalid data."
@@ -1384,7 +1533,7 @@ func build_gunsaw_data(gate_index: int, output_ids: Array, export_wires: Array) 
 		input_ids.append(input_activation_id(gate_index, input_index, output_ids, export_wires))
 	var outputs: Array = output_ids[gate_index]
 	match gate["type_id"]:
-		"MP/Logic/AND", "MP/Logic/OR", "MP/Logic/XOR", "MP/Logic/NAND", "MP/Logic/NOR":
+		"MP/Logic/AND", "MP/Logic/OR", "MP/Logic/XOR", "MP/Logic/XNOR", "MP/Logic/NAND", "MP/Logic/NOR":
 			return {"inputA": input_ids[0], "inputB": input_ids[1], "output": outputs[0]}
 		"MP/Logic/NOT":
 			return {"input": input_ids[0], "output": outputs[0]}
@@ -1408,4 +1557,7 @@ func input_activation_id(gate_index: int, input_index: int, output_ids: Array, s
 	for wire in source_wires:
 		if wire["to_gate"] == gate_index and wire["to_port"] == input_index:
 			return output_ids[wire["from_gate"]][wire["from_port"]]
+	var external_ids: Array = gates[gate_index].get("gunsaw_external_inputs", [])
+	if input_index < external_ids.size():
+		return int(external_ids[input_index])
 	return -1
