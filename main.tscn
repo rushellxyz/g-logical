@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://drclmuegvcrlu"]
+
+[ext_resource type="Script" uid="uid://1vnpbd4bdy4m" path="res://editor.gd" id="1"]
+
+[node name="GLogicalEditor" type="Node2D" unique_id=1897084825]
+script = ExtResource("1")

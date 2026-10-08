@@ -1,0 +1,9 @@
+1. I syslinked decompield code into Gunsa folder
+2. You can read this for more information https://github.com/Pan4ur/Gunsaw-Multiplayer-Mod/commit/de7a6f57d8134ee447bc4ec3814ed487523cba2b
+3. Every level is compressed using gzip and then converted into base64, this is however, the last step of export
+4. Every level in decoded-decompressed state is parsed using C#'s JsonUtility into Level, and each trigger is LevelPart
+5. Finally, some examples of level with logic are:
+ https://raw.githubusercontent.com/Pan4ur/Gunsaw-Multiplayer-Mod/refs/heads/main/Examples/logic_level_random_example.txt
+ https://raw.githubusercontent.com/Pan4ur/Gunsaw-Multiplayer-Mod/refs/heads/main/Examples/logic_level_example.txt
+ You can download them, convert from base64, decompress, and see how it looks like in json
+10. Logic timing: one logic step is one frame. Components process inputs on the next tick, so every component output corresponds to the input state from the previous tick.
