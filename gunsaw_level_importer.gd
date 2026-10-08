@@ -139,6 +139,13 @@ static func parse_part(part: Dictionary, types: Dictionary, id: int) -> Dictiona
 		"Building/Lamp", "Building/ColorLamp":
 			type_id = "MP/IO/LAMP"
 			input_ids = [part.get("id", 0)]
+		"Building/Triggers/DelayTrigger":
+			if not valid_vector(part.get("force")):
+				return {"error": "Invalid delay trigger duration."}
+			type_id = "GUNSAW/DELAY"
+			input_ids = [part.get("id", 0)]
+			output_ids = [part.get("activId", 0)]
+			data = {"delay": float(part["force"]["x"])}
 		"Building/WhiteTile":
 			if not valid_vector(part.get("size")) or float(part.get("rot", 0)) != 0.0:
 				return {}
@@ -246,6 +253,10 @@ static func merge_exported_part(gate: Dictionary, generated: Dictionary) -> Dict
 				part["team"] = generated["team"]
 		"EDITOR/WHITETILE":
 			part["size"] = generated["size"]
+		"GUNSAW/DELAY":
+			part["id"] = generated["id"]
+			part["activId"] = generated["activId"]
+			part["force"] = generated["force"]
 		_:
 			var payload: Dictionary = JSON.parse_string(part["team"])
 			var generated_payload: Dictionary = JSON.parse_string(generated["team"])

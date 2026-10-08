@@ -1,6 +1,7 @@
 extends Node2D
 
 const GunsawLevelImporter = preload("res://gunsaw_level_importer.gd")
+const LogicSimulator = preload("res://logic_simulator.gd")
 
 const TOPBAR_HEIGHT := 72.0
 const GRID_SIZE := 32.0
@@ -27,7 +28,8 @@ const GATE_TYPES := [
 	{"id": "MP/Logic/SR", "name": "SR LATCH", "inputs": ["S", "R"], "outputs": ["Q", "/Q"]},
 	{"id": "MP/Logic/DFF", "name": "D FLIP-FLOP", "inputs": ["D", "CLK"], "outputs": ["Q", "/Q"]},
 	{"id": "MP/Logic/JK", "name": "JK FLIP-FLOP", "inputs": ["J", "K", "CLK"], "outputs": ["Q", "/Q"]},
-	{"id": "MP/Logic/TFF", "name": "T FLIP-FLOP", "inputs": ["T", "CLK"], "outputs": ["Q", "/Q"]}
+	{"id": "MP/Logic/TFF", "name": "T FLIP-FLOP", "inputs": ["T", "CLK"], "outputs": ["Q", "/Q"]},
+	{"id": "GUNSAW/DELAY", "name": "DELAY", "inputs": ["IN"], "outputs": ["PULSE"]}
 ]
 
 var gates: Array[Dictionary] = []
@@ -44,6 +46,7 @@ var drag_group_origins: Dictionary = {}
 var pending_output := {"gate": -1, "port": -1}
 var tick := 0
 var running := false
+var simulation_accumulator := 0.0
 var next_id := 1
 var canvas_offset := Vector2.ZERO
 var canvas_zoom := 1.0
@@ -107,8 +110,12 @@ func _process(_delta: float) -> void:
 	update_ticks_per_second()
 	update_lamp_color_picker()
 	if running:
-		simulate_tick()
-		await get_tree().create_timer(0.18).timeout
+		simulation_accumulator += minf(_delta, 0.25)
+		while simulation_accumulator + 0.000000001 >= LogicSimulator.STEP_SECONDS:
+			simulation_accumulator = maxf(0.0, simulation_accumulator - LogicSimulator.STEP_SECONDS)
+			simulate_tick()
+	else:
+		simulation_accumulator = 0.0
 	queue_redraw()
 
 func _draw() -> void:
@@ -1077,82 +1084,16 @@ func reset_simulation() -> void:
 	ticks_per_second = 0.0
 	tps_window_start_ms = Time.get_ticks_msec()
 	button_candidate = -1
-	for gate in gates:
-		gate["inputs"].fill(false)
-		gate["outputs"].fill(false)
-		gate["previous_inputs"].fill(false)
-		gate["pulse_pending"] = false
-		gate["memory"] = int(gate.get("gunsaw_data", {}).get("initialQ", 0)) != 0
-		if gate["type_id"] == "MP/IO/LAMP":
-			gate["state"] = true
+	simulation_accumulator = 0.0
+	LogicSimulator.reset(gates)
 	status_text = "Simulation reset."
 	queue_redraw()
 
 func simulate_tick() -> void:
-	# Compute all outputs from the inputs captured during the previous tick.
-	for gate in gates:
-		var inputs: Array = gate["inputs"]
-		var result := false
-		match gate["type_id"]:
-			"EDITOR/CLOCK_OUT": result = clock_bus_output_state()
-			"MP/IO/BUTTON": result = gate["pulse_pending"]
-			"MP/IO/LAMP":
-				if gate["inputs"][0] and not gate["previous_inputs"][0]:
-					gate["state"] = not gate["state"]
-			"MP/Logic/AND": result = inputs[0] and inputs[1]
-			"MP/Logic/OR": result = inputs[0] or inputs[1]
-			"MP/Logic/XOR": result = inputs[0] != inputs[1]
-			"MP/Logic/XNOR": result = inputs[0] == inputs[1]
-			"MP/Logic/NAND": result = not (inputs[0] and inputs[1])
-			"MP/Logic/NOR": result = not (inputs[0] or inputs[1])
-			"MP/Logic/NOT": result = not inputs[0]
-			"MP/Logic/CONST": result = int(gate.get("gunsaw_data", {}).get("value", 1)) != 0
-			"MP/Logic/CLOCK":
-				if gate.has("gunsaw_data"):
-					var data: Dictionary = gate["gunsaw_data"]
-					var half_period := maxf(0.02, float(data.get("period", 1.0)) * 0.5)
-					result = (int(data.get("initialHigh", 0)) != 0) != (floori((tick + 1) * 0.02 / half_period) % 2 != 0)
-				else:
-					result = tick % 2 == 0
-			"MP/Logic/EDGE":
-				var mode: int = int(gate.get("gunsaw_data", {}).get("mode", 2))
-				result = (mode != 1 and inputs[0] and not gate["previous_inputs"][0]) or (mode != 0 and not inputs[0] and gate["previous_inputs"][0])
-			"MP/Logic/SR": result = gate["memory"] if inputs[0] and inputs[1] else (true if inputs[0] else false if inputs[1] else gate["memory"])
-			"MP/Logic/DFF": result = inputs[0] if inputs[1] and not gate["previous_inputs"][1] else gate["memory"]
-			"MP/Logic/JK": result = (not gate["memory"]) if inputs[2] and not gate["previous_inputs"][2] and inputs[0] and inputs[1] else (true if inputs[2] and not gate["previous_inputs"][2] and inputs[0] else false if inputs[2] and not gate["previous_inputs"][2] and inputs[1] else gate["memory"])
-			"MP/Logic/TFF": result = (not gate["memory"]) if inputs[1] and not gate["previous_inputs"][1] and inputs[0] else gate["memory"]
-		if gate["type_id"] in ["MP/Logic/SR", "MP/Logic/DFF", "MP/Logic/JK", "MP/Logic/TFF"]:
-			gate["memory"] = result
-		for i in range(gate["outputs"].size()):
-			gate["outputs"][i] = result if i == 0 else not result
-		gate["pulse_pending"] = false
-		gate["previous_inputs"] = gate["inputs"].duplicate()
-	for gate in gates:
-		if gate["type_id"] == "EDITOR/CLOCK_OUT":
-			gate["outputs"][0] = clock_bus_output_state()
-	# Transfer outputs only after every component has evaluated.
-	var next_inputs: Array = []
-	for gate in gates:
-		next_inputs.append([])
-		for _input_value in gate["inputs"]:
-			next_inputs[-1].append(false)
-	var active_drivers: Dictionary = {}
-	for wire in get_expanded_wires(wires):
-		var source_is_on: bool = gates[wire["from_gate"]]["outputs"][wire["from_port"]]
-		if source_is_on:
-			var input_key := "%d:%d" % [wire["to_gate"], wire["to_port"]]
-			active_drivers[input_key] = int(active_drivers.get(input_key, 0)) + 1
-			if active_drivers[input_key] > 1:
-				running = false
-				status_text = "Simulation halted: multiple active wires drive the same input."
-				queue_redraw()
-				return
-		next_inputs[wire["to_gate"]][wire["to_port"]] = next_inputs[wire["to_gate"]][wire["to_port"]] or source_is_on
-	for i in range(gates.size()):
-		gates[i]["inputs"] = next_inputs[i]
+	LogicSimulator.step(gates, get_expanded_wires(wires))
 	tick += 1
 	ticks_in_tps_window += 1
-	status_text = "Advanced one frame; outputs will be consumed next tick."
+	status_text = "Advanced one logic tick (20 ms)."
 	queue_redraw()
 
 func update_ticks_per_second() -> void:
@@ -1266,6 +1207,7 @@ func save_editor(slot: int = current_save_slot) -> void:
 			var tile_size: Vector2 = gate_size(gate)
 			gate["size"] = {"x": tile_size.x, "y": tile_size.y}
 		gate["pulse_pending"] = false
+	LogicSimulator.reset(saved_gates)
 	var document := {
 		"format": 1,
 		"tick": tick,
@@ -1354,6 +1296,7 @@ func load_editor(slot: int = current_save_slot) -> void:
 			status_text = "Load failed: invalid wire data."
 			return
 		wires.append(loaded_wire)
+	LogicSimulator.reset(gates)
 	tick = int(parsed.get("tick", 0))
 	next_id = int(parsed.get("next_id", 1))
 	var saved_offset: Array = parsed["canvas_offset"]
@@ -1453,6 +1396,17 @@ func export_gunsaw() -> void:
 				"team": "#" + str(gate.get("lamp_color", "FFD23F")).trim_prefix("#"),
 				"size": {"x": 0.0, "y": 0.0},
 				"force": {"x": 1.0, "y": 0.0}
+			})
+			exported_count += 1
+			continue
+		if gate["type_id"] == "GUNSAW/DELAY":
+			parts.append({
+				"pos": {"x": gate["position"].x / 320.0, "y": -gate["position"].y / 320.0},
+				"rot": 0.0, "path": "Building/Triggers/DelayTrigger",
+				"id": input_activation_id(gate_index, 0, output_ids, export_wires),
+				"activId": output_ids[gate_index][0], "team": "",
+				"size": {"x": 0.0, "y": 0.0},
+				"force": {"x": float(gate.get("gunsaw_data", {}).get("delay", 0.0)), "y": 0.0}
 			})
 			exported_count += 1
 			continue
