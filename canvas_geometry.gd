@@ -1,5 +1,7 @@
 extends RefCounted
 
+const GateProperties = preload("res://gate_properties.gd")
+
 var dirty := true
 var orthogonal := false
 var gate_bounds: Array[Rect2] = []
@@ -20,7 +22,7 @@ func update(gates: Array, wires: Array, node_size: Vector2) -> void:
 	var output_positions: Array = []
 	for gate in gates:
 		var position: Vector2 = gate["position"]
-		var size: Vector2 = gate.get("size", Vector2(320, 64)) if gate["type_id"] == "EDITOR/WHITETILE" else node_size
+		var size := GateProperties.node_size(gate, node_size)
 		gate_bounds.append(Rect2(position, size))
 		input_positions.append(ports(position, gate["inputs"].size(), 0.0))
 		output_positions.append(ports(position, gate["outputs"].size(), node_size.x))

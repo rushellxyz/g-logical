@@ -3,6 +3,7 @@ extends Node2D
 const GunsawLevelImporter = preload("res://gunsaw_level_importer.gd")
 const LogicSimulator = preload("res://logic_simulator.gd")
 const CanvasGeometry = preload("res://canvas_geometry.gd")
+const GateProperties = preload("res://gate_properties.gd")
 const RUN_ICON = preload("res://icons/run.svg")
 const PAUSE_ICON = preload("res://icons/pause.svg")
 const STEP_ICON = preload("res://icons/step.svg")
@@ -38,7 +39,8 @@ const GATE_TYPES := [
 	{"id": "MP/Logic/DFF", "name": "D FLIP-FLOP", "inputs": ["D", "CLK"], "outputs": ["Q", "/Q"]},
 	{"id": "MP/Logic/JK", "name": "JK FLIP-FLOP", "inputs": ["J", "K", "CLK"], "outputs": ["Q", "/Q"]},
 	{"id": "MP/Logic/TFF", "name": "T FLIP-FLOP", "inputs": ["T", "CLK"], "outputs": ["Q", "/Q"]},
-	{"id": "GUNSAW/DELAY", "name": "DELAY", "inputs": ["IN"], "outputs": ["PULSE"]}
+	{"id": "GUNSAW/DELAY", "name": "DELAY", "inputs": ["IN"], "outputs": ["PULSE"]},
+	{"id": "GUNSAW/CYCLE", "name": "CYCLE", "inputs": ["TOGGLE"], "outputs": ["PULSE"]}
 ]
 
 var gates: Array[Dictionary] = []
@@ -101,6 +103,7 @@ var drawn_tps := -1.0
 var drawn_toolbar_height := -1.0
 var canvas_geometry := CanvasGeometry.new()
 var simulation := LogicSimulator.new()
+var gate_properties: GateProperties
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
@@ -113,6 +116,9 @@ func _ready() -> void:
 	lamp_color_picker.custom_minimum_size = Vector2(54, 28)
 	lamp_color_picker.color_changed.connect(_on_lamp_color_changed)
 	build_toolbar()
+	gate_properties = GateProperties.new()
+	toolbar_panel.get_parent().add_child(gate_properties)
+	gate_properties.parameter_changed.connect(func(id: int, field: String, value: Variant): _on_gate_parameter_changed(field, value, id))
 	setup_import_dialog()
 	get_viewport().size_changed.connect(queue_redraw)
 	update_lamp_color_picker()
@@ -136,6 +142,7 @@ func _process(_delta: float) -> void:
 				break
 	else:
 		simulation_accumulator = 0.0
+	gate_properties.update_editor(gates, canvas_transform_origin(), canvas_zoom, toolbar_height, physical_mode)
 	if drawn_status != status_text or drawn_tick != tick or drawn_tps != ticks_per_second or drawn_toolbar_height != toolbar_height:
 		queue_redraw()
 
@@ -304,6 +311,39 @@ func update_run_button() -> void:
 	run_button.icon = PAUSE_ICON if running else RUN_ICON
 	run_button.tooltip_text = "Pause simulation" if running else "Run simulation"
 
+func _on_gate_parameter_changed(field: String, value: Variant, gate_id: int = -1) -> void:
+	var gate_index := selected_gate
+	if gate_id >= 0:
+		gate_index = -1
+		for i in range(gates.size()):
+			if gates[i]["id"] == gate_id:
+				gate_index = i
+				break
+	if gate_index < 0 or gate_index >= gates.size():
+		return
+	var gate: Dictionary = gates[gate_index]
+	var fields: Array = GateProperties.FIELDS.get(gate["type_id"], [])
+	var allowed := false
+	for definition in fields:
+		if definition[0] == field:
+			allowed = true
+			if definition[2] == "number":
+				if not is_finite(float(value)):
+					return
+				value = maxf(float(definition[4]), float(value))
+			elif definition[2] == "bool":
+				value = int(int(value) != 0)
+			else:
+				value = clampi(int(value), 0, 2)
+	if not allowed or gate.get("gunsaw_data", {}).get(field) == value:
+		return
+	push_undo_state()
+	if not gate.has("gunsaw_data"):
+		gate["gunsaw_data"] = {}
+	gate["gunsaw_data"][field] = value
+	reset_simulation()
+	status_text = "Updated %s: %s. Simulation reset." % [gate["name"], field]
+
 func toolbar_button_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
@@ -390,6 +430,8 @@ func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 		draw_circle(pos, PORT_RADIUS, Color("#f0c15b") if value else Color("#68778e"))
 		if canvas_zoom >= 0.5:
 			draw_string(font, pos + Vector2(-58, 4), gate["output_names"][i], HORIZONTAL_ALIGNMENT_RIGHT, 48, 12, Color("#c5d0df"))
+	if canvas_zoom >= 0.5:
+		gate_properties.draw_fields(self, gate, font)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func is_physical_gate(gate: Dictionary) -> bool:
@@ -399,9 +441,7 @@ func is_physical_gate_type(type_id: String) -> bool:
 	return type_id in ["MP/IO/BUTTON", "MP/IO/LAMP", "EDITOR/WHITETILE"]
 
 func gate_size(gate: Dictionary) -> Vector2:
-	if gate["type_id"] == "EDITOR/WHITETILE":
-		return gate.get("size", Vector2(10, 2) * PHYSICAL_UNIT_SIZE)
-	return NODE_SIZE
+	return GateProperties.node_size(gate, NODE_SIZE)
 
 func _draw_wire(wire: Dictionary, selected: bool, wire_index: int) -> void:
 	var a: Vector2 = canvas_geometry.wire_starts[wire_index]
@@ -605,6 +645,7 @@ func setup_import_dialog() -> void:
 	add_child(import_dialog)
 
 func apply_gunsaw_import(result: Dictionary) -> void:
+	gate_properties.cancel()
 	if result.has("error"):
 		status_text = "Import failed: %s" % result["error"]
 		queue_redraw()
@@ -670,6 +711,7 @@ func _on_save_slot_menu_id_pressed(action_id: int) -> void:
 func handle_press(pos: Vector2, _swap_selected := false) -> void:
 	if pos.y < toolbar_height:
 		return
+	gate_properties.commit()
 	if physical_mode:
 		var physical_port := find_port(screen_to_canvas(pos))
 		if physical_port["gate"] >= 0 and not physical_port["input"]:
@@ -687,6 +729,23 @@ func handle_press(pos: Vector2, _swap_selected := false) -> void:
 		status_text = "Select an input port to finish the connection."
 		queue_redraw()
 		return
+	if not physical_mode and canvas_zoom >= 0.5:
+		for i in range(gates.size() - 1, -1, -1):
+			if gates[i]["type_id"] == "EDITOR/WHITETILE":
+				continue
+			var field := GateProperties.field_at(gates[i], pos)
+			if field < 0:
+				if Rect2(gates[i]["position"], gate_size(gates[i])).has_point(pos):
+					break
+				continue
+			selected_gate = i
+			selected_gates = [i]
+			selected_wire = -1
+			pending_output = {"gate": -1, "port": -1}
+			gate_properties.activate(gates[i], field)
+			gate_properties.update_editor(gates, canvas_transform_origin(), canvas_zoom, toolbar_height, physical_mode)
+			queue_redraw()
+			return
 	var wire_index := find_wire(pos)
 	if wire_index >= 0:
 		selected_gates.clear()
@@ -1160,6 +1219,7 @@ func get_expanded_wires(source_wires: Array, include_clock_inputs := true) -> Ar
 	return expanded
 
 func reset_simulation() -> void:
+	gate_properties.cancel()
 	running = false
 	run_button.button_pressed = false
 	update_run_button()
@@ -1240,6 +1300,7 @@ func begin_drag_undo() -> void:
 	drag_undo_recorded = false
 
 func undo_last_action() -> void:
+	gate_properties.cancel()
 	if undo_history.is_empty():
 		status_text = "Nothing to undo."
 		return
@@ -1273,6 +1334,7 @@ func undo_last_action() -> void:
 	queue_redraw()
 
 func save_editor(slot: int = current_save_slot) -> void:
+	gate_properties.commit()
 	current_save_slot = clampi(slot, 1, SAVE_SLOT_COUNT)
 	var save_path := save_slot_path(current_save_slot)
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
@@ -1314,6 +1376,7 @@ func save_editor(slot: int = current_save_slot) -> void:
 	status_text = "Editor saved to Slot %d (%s)." % [current_save_slot, save_path]
 
 func load_editor(slot: int = current_save_slot) -> void:
+	gate_properties.cancel()
 	current_save_slot = clampi(slot, 1, SAVE_SLOT_COUNT)
 	var save_path := save_slot_path(current_save_slot)
 	if not FileAccess.file_exists(save_path):
@@ -1412,6 +1475,7 @@ func save_slot_path(slot: int) -> String:
 	return "user://g-logical-editor-slot-%d.json" % slot
 
 func export_gunsaw() -> void:
+	gate_properties.commit()
 	var has_clock_out_connections := false
 	var has_invalid_clock_source := false
 	var clock_sources: Dictionary = {}
@@ -1491,14 +1555,15 @@ func export_gunsaw() -> void:
 			})
 			exported_count += 1
 			continue
-		if gate["type_id"] == "GUNSAW/DELAY":
+		if gate["type_id"] in ["GUNSAW/DELAY", "GUNSAW/CYCLE"]:
+			var cyclic: bool = gate["type_id"] == "GUNSAW/CYCLE"
 			parts.append({
 				"pos": {"x": gate["position"].x / 320.0, "y": -gate["position"].y / 320.0},
-				"rot": 0.0, "path": "Building/Triggers/DelayTrigger",
+				"rot": 0.0, "path": "Building/Triggers/TimedTrigger" if cyclic else "Building/Triggers/DelayTrigger",
 				"id": input_activation_id(gate_index, 0, output_ids, export_wires),
 				"activId": output_ids[gate_index][0], "team": "",
 				"size": {"x": 0.0, "y": 0.0},
-				"force": {"x": float(gate.get("gunsaw_data", {}).get("delay", 0.0)), "y": 0.0}
+				"force": {"x": float(gate.get("gunsaw_data", {}).get("cycleTime", 1.0) if cyclic else gate.get("gunsaw_data", {}).get("delay", 0.0)), "y": 0.0}
 			})
 			exported_count += 1
 			continue
@@ -1584,19 +1649,19 @@ func build_gunsaw_data(gate_index: int, output_ids: Array, export_wires: Array) 
 		"MP/Logic/NOT":
 			return {"input": input_ids[0], "output": outputs[0]}
 		"MP/Logic/CONST":
-			return {"output": outputs[0], "value": 1}
+			return {"output": outputs[0], "value": int(gate.get("gunsaw_data", {}).get("value", 1))}
 		"MP/Logic/CLOCK":
-			return {"output": outputs[0], "period": 1.0, "initialHigh": 0}
+			return {"output": outputs[0], "period": float(gate.get("gunsaw_data", {}).get("period", 1.0)), "initialHigh": int(gate.get("gunsaw_data", {}).get("initialHigh", 0))}
 		"MP/Logic/EDGE":
-			return {"input": input_ids[0], "output": outputs[0], "mode": 2}
+			return {"input": input_ids[0], "output": outputs[0], "mode": int(gate.get("gunsaw_data", {}).get("mode", 2))}
 		"MP/Logic/SR":
-			return {"set": input_ids[0], "reset": input_ids[1], "q": outputs[0], "notQ": outputs[1], "initialQ": 0}
+			return {"set": input_ids[0], "reset": input_ids[1], "q": outputs[0], "notQ": outputs[1], "initialQ": int(gate.get("gunsaw_data", {}).get("initialQ", 0))}
 		"MP/Logic/DFF":
-			return {"d": input_ids[0], "clock": input_ids[1], "q": outputs[0], "notQ": outputs[1], "initialQ": 0}
+			return {"d": input_ids[0], "clock": input_ids[1], "q": outputs[0], "notQ": outputs[1], "initialQ": int(gate.get("gunsaw_data", {}).get("initialQ", 0))}
 		"MP/Logic/JK":
-			return {"j": input_ids[0], "k": input_ids[1], "clock": input_ids[2], "q": outputs[0], "notQ": outputs[1], "initialQ": 0}
+			return {"j": input_ids[0], "k": input_ids[1], "clock": input_ids[2], "q": outputs[0], "notQ": outputs[1], "initialQ": int(gate.get("gunsaw_data", {}).get("initialQ", 0))}
 		"MP/Logic/TFF":
-			return {"t": input_ids[0], "clock": input_ids[1], "q": outputs[0], "notQ": outputs[1], "initialQ": 0}
+			return {"t": input_ids[0], "clock": input_ids[1], "q": outputs[0], "notQ": outputs[1], "initialQ": int(gate.get("gunsaw_data", {}).get("initialQ", 0))}
 	return {}
 
 func input_activation_id(gate_index: int, input_index: int, output_ids: Array, source_wires: Array) -> int:

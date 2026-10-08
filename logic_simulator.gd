@@ -1,7 +1,7 @@
 extends RefCounted
 
 const STEP_SECONDS := 0.02
-enum Op { NONE, BUTTON, LAMP, AND, OR, XOR, XNOR, NAND, NOR, NOT, CONST, CLOCK, EDGE, SR, DFF, JK, TFF, DELAY, CLOCK_IN, CLOCK_OUT }
+enum Op { NONE, BUTTON, LAMP, AND, OR, XOR, XNOR, NAND, NOR, NOT, CONST, CLOCK, EDGE, SR, DFF, JK, TFF, DELAY, CYCLE, CLOCK_IN, CLOCK_OUT }
 const OPERATIONS := {
 	"MP/IO/BUTTON": Op.BUTTON, "MP/IO/LAMP": Op.LAMP,
 	"MP/Logic/AND": Op.AND, "MP/Logic/OR": Op.OR, "MP/Logic/XOR": Op.XOR,
@@ -9,6 +9,7 @@ const OPERATIONS := {
 	"MP/Logic/NOT": Op.NOT, "MP/Logic/CONST": Op.CONST, "MP/Logic/CLOCK": Op.CLOCK,
 	"MP/Logic/EDGE": Op.EDGE, "MP/Logic/SR": Op.SR, "MP/Logic/DFF": Op.DFF,
 	"MP/Logic/JK": Op.JK, "MP/Logic/TFF": Op.TFF, "GUNSAW/DELAY": Op.DELAY,
+	"GUNSAW/CYCLE": Op.CYCLE,
 	"EDITOR/CLOCK_IN": Op.CLOCK_IN, "EDITOR/CLOCK_OUT": Op.CLOCK_OUT
 }
 
@@ -36,7 +37,7 @@ var _routes: Array[PackedInt32Array] = []
 var _native_routes: Array[PackedInt32Array] = []
 var _groups: Array[PackedInt32Array] = []
 var _memory_gates := PackedInt32Array()
-var _delays := PackedInt32Array()
+var _timers := PackedInt32Array()
 var _buttons := PackedInt32Array()
 var _clock_inputs := PackedInt32Array()
 var _clock_outputs := PackedInt32Array()
@@ -51,7 +52,7 @@ static func reset(gates: Array) -> void:
 		gate["pulse_pending"] = false
 		gate["memory"] = int(gate.get("gunsaw_data", {}).get("initialQ", 0)) != 0
 		gate["state"] = true
-		for key in ["simulation_clock_elapsed", "simulation_clock_high", "simulation_delay_remaining", "simulation_button_used"]:
+		for key in ["simulation_clock_elapsed", "simulation_clock_high", "simulation_delay_remaining", "simulation_cycle_remaining", "simulation_button_used"]:
 			gate.erase(key)
 
 func compile(gates: Array, wires: Array, original_wire_count: int) -> void:
@@ -82,7 +83,7 @@ func compile(gates: Array, wires: Array, original_wire_count: int) -> void:
 	_groups.clear()
 	_groups.resize(Op.size())
 	_memory_gates.clear()
-	_delays.clear()
+	_timers.clear()
 	_buttons.clear()
 	_clock_inputs.clear()
 	_clock_outputs.clear()
@@ -118,14 +119,18 @@ func compile(gates: Array, wires: Array, original_wire_count: int) -> void:
 			Op.EDGE:
 				var mode := int(data.get("mode", 2))
 				_parameters[i] = mode if mode >= 0 and mode <= 2 else 255
-			Op.DELAY: _delays.append(i)
+			Op.DELAY: _timers.append(i)
+			Op.CYCLE:
+				_timers.append(i)
+				_elapsed[i] = float(gate.get("simulation_cycle_remaining", 0.0))
+				_periods[i] = float(data.get("cycleTime", 1.0))
 			Op.CLOCK_IN: _clock_inputs.append(i)
 			Op.CLOCK_OUT: _clock_outputs.append(i)
 	for wire in wires:
 		var slot := int(wire["from_gate"]) * 2 + int(wire["from_port"])
 		var target := int(wire["to_gate"])
 		var destination := (target << 2) | int(wire["to_port"])
-		if _ops[target] == Op.LAMP or _ops[target] == Op.DELAY:
+		if _ops[target] in [Op.LAMP, Op.DELAY, Op.CYCLE]:
 			_native_routes[slot].append(destination)
 		else:
 			_routes[slot].append(destination)
@@ -200,15 +205,24 @@ func advance() -> void:
 			deliver(i * 2)
 		if outputs & 2:
 			deliver(i * 2 + 1)
-	for i in _delays:
-		if not _delay_active[i]:
-			continue
-		_delay_remaining[i] -= _step_seconds
-		if _delay_remaining[i] < 0:
+	for i in _timers:
+		if _ops[i] == Op.CYCLE:
+			if not _states[i]:
+				continue
+			_elapsed[i] -= _step_seconds
+			if _elapsed[i] > 0:
+				continue
+			_elapsed[i] = _periods[i]
+		else:
+			if not _delay_active[i]:
+				continue
+			_delay_remaining[i] -= _step_seconds
+			if _delay_remaining[i] >= 0:
+				continue
 			_delay_active[i] = 0
-			_outputs[i] = 1
-			_epoch += 1
-			deliver(i * 2)
+		_outputs[i] = 1
+		_epoch += 1
+		deliver(i * 2)
 	var spare := _previous
 	_previous = _inputs
 	_inputs = _next
@@ -230,6 +244,8 @@ func deliver(slot: int) -> void:
 		_delivery_epochs[gate] = _epoch
 		if _ops[gate] == Op.LAMP:
 			_states[gate] ^= _parameters[gate]
+		elif _ops[gate] == Op.CYCLE:
+			_states[gate] ^= 1
 		else:
 			_delay_remaining[gate] = _delay_duration[gate]
 			_delay_active[gate] = 1
@@ -257,6 +273,8 @@ func sync_gate(index: int) -> void:
 				gate["simulation_delay_remaining"] = _delay_remaining[index]
 			else:
 				gate.erase("simulation_delay_remaining")
+		Op.CYCLE:
+			gate["simulation_cycle_remaining"] = _elapsed[index]
 		Op.BUTTON:
 			gate["simulation_button_used"] = _button_used[index] != 0
 

@@ -146,6 +146,13 @@ static func parse_part(part: Dictionary, types: Dictionary, id: int) -> Dictiona
 			input_ids = [part.get("id", 0)]
 			output_ids = [part.get("activId", 0)]
 			data = {"delay": float(part["force"]["x"])}
+		"Building/Triggers/TimedTrigger":
+			if not valid_vector(part.get("force")):
+				return {"error": "Invalid cycle trigger interval."}
+			type_id = "GUNSAW/CYCLE"
+			input_ids = [part.get("id", 0)]
+			output_ids = [part.get("activId", 0)]
+			data = {"cycleTime": float(part["force"]["x"])}
 		"Building/WhiteTile":
 			if not valid_vector(part.get("size")) or float(part.get("rot", 0)) != 0.0:
 				return {}
@@ -253,7 +260,7 @@ static func merge_exported_part(gate: Dictionary, generated: Dictionary) -> Dict
 				part["team"] = generated["team"]
 		"EDITOR/WHITETILE":
 			part["size"] = generated["size"]
-		"GUNSAW/DELAY":
+		"GUNSAW/DELAY", "GUNSAW/CYCLE":
 			part["id"] = generated["id"]
 			part["activId"] = generated["activId"]
 			part["force"] = generated["force"]
@@ -262,7 +269,7 @@ static func merge_exported_part(gate: Dictionary, generated: Dictionary) -> Dict
 			var generated_payload: Dictionary = JSON.parse_string(generated["team"])
 			var data: Dictionary = gate["gunsaw_data"].duplicate(true)
 			var generated_data: Dictionary = JSON.parse_string(generated_payload["data"])
-			var changed := false
+			var changed: bool = data != JSON.parse_string(payload["data"])
 			for field in PORT_FIELDS[gate["type_id"]][0] + PORT_FIELDS[gate["type_id"]][1]:
 				if int(data.get(field, -1)) != int(generated_data[field]):
 					data[field] = int(generated_data[field])
