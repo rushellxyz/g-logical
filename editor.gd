@@ -518,6 +518,15 @@ func handle_press(pos: Vector2, _swap_selected := false) -> void:
 		pending_output = {"gate": port["gate"], "port": port["port"]}
 		status_text = "Select an input port to finish the connection."
 		return
+	var wire_index := find_wire(pos)
+	if wire_index >= 0:
+		selected_gates.clear()
+		selected_gate = -1
+		selected_wire = wire_index
+		pending_output = {"gate": -1, "port": -1}
+		status_text = "Selected wire. Press Delete or right-click to remove it."
+		queue_redraw()
+		return
 	for i in range(gates.size() - 1, -1, -1):
 		if gates[i]["type_id"] == "EDITOR/WHITETILE" and not physical_mode:
 			continue
@@ -581,15 +590,6 @@ func handle_press(pos: Vector2, _swap_selected := false) -> void:
 			status_text = "Selected %d gate%s." % [selected_gates.size(), "" if selected_gates.size() == 1 else "s"]
 			queue_redraw()
 			return
-	var wire_index := find_wire(pos)
-	if wire_index >= 0:
-		selected_gates.clear()
-		selected_gate = -1
-		selected_wire = wire_index
-		pending_output = {"gate": -1, "port": -1}
-		status_text = "Selected wire. Press Delete or right-click to remove it."
-		queue_redraw()
-		return
 	if active_tool == "SELECT":
 		selected_gates.clear()
 		selected_gate = -1
@@ -665,21 +665,22 @@ func finish_box_selection() -> void:
 	queue_redraw()
 
 func handle_delete_press(pos: Vector2) -> void:
+	if pos.y < toolbar_height:
+		return
 	pos = screen_to_canvas(pos)
 	var port := find_port(pos)
-	if port["gate"] >= 0:
-		selected_gates = [port["gate"]]
-		selected_gate = port["gate"]
-		selected_wire = -1
+	var wire_index := find_wire(pos) if port["gate"] < 0 else -1
+	if wire_index >= 0:
+		selected_gates.clear()
+		selected_gate = -1
+		selected_wire = wire_index
 	else:
-		var gate_index := find_gate(pos)
+		var gate_index: int = port["gate"] if port["gate"] >= 0 else find_gate(pos)
+		selected_gates.clear()
+		selected_gate = gate_index
+		selected_wire = -1
 		if gate_index >= 0:
 			selected_gates = [gate_index]
-			selected_gate = gate_index
-			selected_wire = -1
-		else:
-			selected_gate = -1
-			selected_wire = find_wire(pos)
 	delete_selection()
 
 func find_gate(pos: Vector2) -> int:
