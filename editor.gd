@@ -2,6 +2,7 @@ extends Node2D
 
 const GunsawLevelImporter = preload("res://gunsaw_level_importer.gd")
 const LogicSimulator = preload("res://logic_simulator.gd")
+const CanvasGeometry = preload("res://canvas_geometry.gd")
 
 const TOPBAR_HEIGHT := 72.0
 const GRID_SIZE := 32.0
@@ -37,6 +38,7 @@ var wires: Array[Dictionary] = []
 var selected_gates: Array[int] = []
 var selected_gate := -1
 var selected_wire := -1
+var wires_visible := true
 var dragging_gate := -1
 var resizing_gate := -1
 var resize_start_position := Vector2.ZERO
@@ -85,6 +87,12 @@ var current_save_slot := 1
 var undo_history: Array[Dictionary] = []
 var drag_undo_snapshot: Dictionary = {}
 var drag_undo_recorded := false
+var drawn_status := ""
+var drawn_tick := -1
+var drawn_tps := -1.0
+var drawn_toolbar_height := -1.0
+var canvas_geometry := CanvasGeometry.new()
+var simulation := LogicSimulator.new()
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
@@ -98,6 +106,7 @@ func _ready() -> void:
 	lamp_color_picker.color_changed.connect(_on_lamp_color_changed)
 	build_toolbar()
 	setup_import_dialog()
+	get_viewport().size_changed.connect(queue_redraw)
 	update_lamp_color_picker()
 	queue_redraw()
 
@@ -110,31 +119,44 @@ func _process(_delta: float) -> void:
 	update_ticks_per_second()
 	update_lamp_color_picker()
 	if running:
-		simulation_accumulator += minf(_delta, 0.25)
+		simulation_accumulator = minf(simulation_accumulator + _delta, 0.25)
+		var deadline := Time.get_ticks_usec() + 8000
 		while simulation_accumulator + 0.000000001 >= LogicSimulator.STEP_SECONDS:
 			simulation_accumulator = maxf(0.0, simulation_accumulator - LogicSimulator.STEP_SECONDS)
 			simulate_tick()
+			if Time.get_ticks_usec() >= deadline:
+				break
 	else:
 		simulation_accumulator = 0.0
-	queue_redraw()
+	if drawn_status != status_text or drawn_tick != tick or drawn_tps != ticks_per_second or drawn_toolbar_height != toolbar_height:
+		queue_redraw()
 
 func _draw() -> void:
+	canvas_geometry.update(gates, wires, NODE_SIZE)
+	drawn_status = status_text
+	drawn_tick = tick
+	drawn_tps = ticks_per_second
+	drawn_toolbar_height = toolbar_height
 	var size := get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, size), Color("#111722"))
 	draw_rect(Rect2(0, toolbar_height, size.x, maxf(0.0, size.y - toolbar_height)), Color("#15271f") if physical_mode else Color("#151c29"))
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 	var canvas_top_left := screen_to_canvas(Vector2(0, toolbar_height))
 	var canvas_bottom_right := screen_to_canvas(size)
-	var first_grid_x := floori(canvas_top_left.x / GRID_SIZE) - 1
-	var last_grid_x := ceili(canvas_bottom_right.x / GRID_SIZE) + 1
+	var visible_canvas := Rect2(canvas_top_left, canvas_bottom_right - canvas_top_left).abs().grow(16.0 / canvas_zoom)
+	var grid_spacing := GRID_SIZE
+	while grid_spacing * canvas_zoom < 12.0:
+		grid_spacing *= 2.0
+	var first_grid_x := floori(canvas_top_left.x / grid_spacing) - 1
+	var last_grid_x := ceili(canvas_bottom_right.x / grid_spacing) + 1
 	var grid_color := Color("#28543f") if physical_mode else Color("#202a3a")
 	for x in range(first_grid_x, last_grid_x + 1):
-		var grid_x := x * GRID_SIZE
+		var grid_x := x * grid_spacing
 		draw_line(Vector2(grid_x, canvas_top_left.y), Vector2(grid_x, canvas_bottom_right.y), grid_color, 1.0 / canvas_zoom)
-	var first_grid_y := floori((canvas_top_left.y - TOPBAR_HEIGHT) / GRID_SIZE) - 1
-	var last_grid_y := ceili((canvas_bottom_right.y - TOPBAR_HEIGHT) / GRID_SIZE) + 1
+	var first_grid_y := floori((canvas_top_left.y - TOPBAR_HEIGHT) / grid_spacing) - 1
+	var last_grid_y := ceili((canvas_bottom_right.y - TOPBAR_HEIGHT) / grid_spacing) + 1
 	for y in range(first_grid_y, last_grid_y + 1):
-		var grid_y := TOPBAR_HEIGHT + y * GRID_SIZE
+		var grid_y := TOPBAR_HEIGHT + y * grid_spacing
 		draw_line(Vector2(canvas_top_left.x, grid_y), Vector2(canvas_bottom_right.x, grid_y), grid_color, 1.0 / canvas_zoom)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	for i in range(gates.size()):
@@ -142,10 +164,14 @@ func _draw() -> void:
 			continue
 		if physical_mode and not is_physical_gate(gates[i]):
 			continue
+		if not canvas_geometry.gate_bounds[i].intersects(visible_canvas):
+			continue
 		_draw_gate(gates[i], i)
-	if not physical_mode:
+	if not physical_mode and wires_visible:
+		var wire_view := visible_canvas.grow(9.0 / canvas_zoom)
 		for i in range(wires.size()):
-			_draw_wire(wires[i], i == selected_wire)
+			if canvas_geometry.wire_bounds[i].intersects(wire_view, true):
+				_draw_wire(wires[i], i == selected_wire, i)
 	if selecting:
 		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), Color("#6ca9e8", 0.18), true)
 		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), Color("#8bc5f5"), false, 1.0)
@@ -154,7 +180,7 @@ func _draw() -> void:
 		var start := port_position(pending_output["gate"], false, pending_output["port"])
 		draw_line(start, screen_to_canvas(get_local_mouse_position()), Color("#f5c451"), 3.0 / canvas_zoom)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  %s" % [tick, ticks_per_second, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
+	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Lines [L]: %s  |  %s" % [tick, ticks_per_second, "ON" if wires_visible else "OFF", status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
 
 func build_toolbar() -> void:
 	var layer := CanvasLayer.new()
@@ -293,6 +319,7 @@ func rebuild_gate_toolbar() -> void:
 		button.tooltip_text = "Click to add; Shift-click to swap selected gates."
 
 func _draw_gate(gate: Dictionary, gate_index: int) -> void:
+	simulation.sync_gate(gate_index)
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 	var rect := Rect2(gate["position"], gate_size(gate))
 	if gate["type_id"] == "EDITOR/WHITETILE":
@@ -316,25 +343,29 @@ func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 	draw_rect(rect, gate_color, true)
 	draw_rect(rect, Color("#77a9d8") if is_selected else Color("#485b75"), false, 2)
 	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 28)), Color("#344963"), true)
-	draw_string(font, rect.position + Vector2(10, 19), gate["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#f5f7fb"))
+	if canvas_zoom >= 0.5:
+		draw_string(font, rect.position + Vector2(10, 19), gate["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#f5f7fb"))
 	if gate["type_id"] == "EDITOR/COMMENT":
-		draw_string(font, rect.position + Vector2(10, 58), gate["text"], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, 14, Color("#ffe7a3"))
+		if canvas_zoom >= 0.5:
+			draw_string(font, rect.position + Vector2(10, 58), gate["text"], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, 14, Color("#ffe7a3"))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
-	if gate["type_id"] == "MP/IO/BUTTON":
+	if gate["type_id"] == "MP/IO/BUTTON" and canvas_zoom >= 0.5:
 		draw_string(font, rect.position + Vector2(10, 61), "Click to pulse", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c5d0df"))
-	elif gate["type_id"] == "MP/IO/LAMP":
+	elif gate["type_id"] == "MP/IO/LAMP" and canvas_zoom >= 0.5:
 		draw_string(font, rect.position + Vector2(10, 61), "ON" if gate["state"] else "OFF", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#ffe08a") if gate["state"] else Color("#9aa8b8"))
 	for i in range(gate["inputs"].size()):
 		var pos := port_position(gate_index, true, i)
 		var value: bool = gate["inputs"][i]
 		draw_circle(pos, PORT_RADIUS, Color("#61d49a") if value else Color("#68778e"))
-		draw_string(font, pos + Vector2(12, 4), gate["input_names"][i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c5d0df"))
+		if canvas_zoom >= 0.5:
+			draw_string(font, pos + Vector2(12, 4), gate["input_names"][i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c5d0df"))
 	for i in range(gate["outputs"].size()):
 		var pos := port_position(gate_index, false, i)
 		var value: bool = gate["outputs"][i]
 		draw_circle(pos, PORT_RADIUS, Color("#f0c15b") if value else Color("#68778e"))
-		draw_string(font, pos + Vector2(-58, 4), gate["output_names"][i], HORIZONTAL_ALIGNMENT_RIGHT, 48, 12, Color("#c5d0df"))
+		if canvas_zoom >= 0.5:
+			draw_string(font, pos + Vector2(-58, 4), gate["output_names"][i], HORIZONTAL_ALIGNMENT_RIGHT, 48, 12, Color("#c5d0df"))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func is_physical_gate(gate: Dictionary) -> bool:
@@ -348,11 +379,11 @@ func gate_size(gate: Dictionary) -> Vector2:
 		return gate.get("size", Vector2(10, 2) * PHYSICAL_UNIT_SIZE)
 	return NODE_SIZE
 
-func _draw_wire(wire: Dictionary, selected: bool) -> void:
+func _draw_wire(wire: Dictionary, selected: bool, wire_index: int) -> void:
+	var a: Vector2 = canvas_geometry.wire_starts[wire_index]
+	var b: Vector2 = canvas_geometry.wire_ends[wire_index]
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
-	var a := port_position(wire["from_gate"], false, wire["from_port"])
-	var b := port_position(wire["to_gate"], true, wire["to_port"])
-	var high: bool = gates[wire["from_gate"]]["outputs"][wire["from_port"]]
+	var high: bool = simulation.output_high(wire["from_gate"], wire["from_port"]) if not simulation.dirty else gates[wire["from_gate"]]["outputs"][wire["from_port"]]
 	var wire_color := Color("#f5c451") if high else Color("#71839d")
 	if selected:
 		wire_color = Color("#f28b82")
@@ -441,6 +472,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				gates[selected_gate]["text"] += char(event.unicode)
 				queue_redraw()
 				return
+		if (event.physical_keycode == KEY_L or event.keycode == KEY_L) and not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
+			if not event.echo:
+				wires_visible = not wires_visible
+				if not wires_visible:
+					selected_wire = -1
+				queue_redraw()
+			return
 		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
 			delete_selection()
 			return
@@ -471,13 +509,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		var zoom_anchor := screen_to_canvas(event.position)
 		var zoom_factor := 1.1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.1
-		var new_zoom: float = clampf(canvas_zoom * zoom_factor, 0.25, 2.0)
+		var new_zoom: float = canvas_zoom * zoom_factor
+		if new_zoom <= 0.0 or not is_finite(new_zoom):
+			return
 		canvas_zoom = new_zoom
 		canvas_offset = event.position - zoom_anchor * canvas_zoom - Vector2(0, TOPBAR_HEIGHT * (1.0 - canvas_zoom))
 		queue_redraw()
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		handle_delete_press(event.position)
 	if event is InputEventMouseMotion and dragging_gate >= 0:
+		canvas_geometry.dirty = true
 		var dragged_position := snap_position(screen_to_canvas(event.position) - drag_offset)
 		var movement: Vector2 = dragged_position - drag_group_origins[dragging_gate]
 		if movement != Vector2.ZERO and not drag_undo_recorded:
@@ -487,6 +528,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			gates[gate_index]["position"] = snap_position(drag_group_origins[gate_index] + movement)
 		queue_redraw()
 	if event is InputEventMouseMotion and resizing_gate >= 0:
+		canvas_geometry.dirty = true
 		var resized_position := screen_to_canvas(event.position)
 		var new_size := resized_position - resize_start_position
 		var updated_size := Vector2(
@@ -504,6 +546,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and panning:
 		canvas_offset = pan_offset_start + event.position - pan_start
 		clamp_canvas_offset()
+		queue_redraw()
+	if event is InputEventMouseMotion and pending_output["gate"] >= 0:
 		queue_redraw()
 
 func setup_import_dialog() -> void:
@@ -609,6 +653,7 @@ func handle_press(pos: Vector2, _swap_selected := false) -> void:
 			return
 		pending_output = {"gate": port["gate"], "port": port["port"]}
 		status_text = "Select an input port to finish the connection."
+		queue_redraw()
 		return
 	var wire_index := find_wire(pos)
 	if wire_index >= 0:
@@ -788,18 +833,25 @@ func find_gate(pos: Vector2) -> int:
 	return -1
 
 func find_wire(pos: Vector2) -> int:
+	if not wires_visible:
+		return -1
 	if physical_mode:
 		return -1
+	canvas_geometry.update(gates, wires, NODE_SIZE)
 	for i in range(wires.size() - 1, -1, -1):
-		var wire: Dictionary = wires[i]
-		var start := port_position(wire["from_gate"], false, wire["from_port"])
-		var end := port_position(wire["to_gate"], true, wire["to_port"])
+		if not canvas_geometry.wire_bounds[i].grow(9.0).has_point(pos):
+			continue
+		var start: Vector2 = canvas_geometry.wire_starts[i]
+		var end: Vector2 = canvas_geometry.wire_ends[i]
 		if Geometry2D.get_closest_point_to_segment(pos, start, end).distance_to(pos) <= 9.0:
 			return i
 	return -1
 
 func find_port(pos: Vector2) -> Dictionary:
+	canvas_geometry.update(gates, wires, NODE_SIZE)
 	for i in range(gates.size() - 1, -1, -1):
+		if not canvas_geometry.gate_bounds[i].grow(12.0).has_point(pos):
+			continue
 		var gate: Dictionary = gates[i]
 		if physical_mode and not is_physical_gate(gate):
 			continue
@@ -1085,12 +1137,15 @@ func reset_simulation() -> void:
 	tps_window_start_ms = Time.get_ticks_msec()
 	button_candidate = -1
 	simulation_accumulator = 0.0
+	simulation.dirty = true
 	LogicSimulator.reset(gates)
 	status_text = "Simulation reset."
 	queue_redraw()
 
 func simulate_tick() -> void:
-	LogicSimulator.step(gates, get_expanded_wires(wires))
+	if simulation.dirty or simulation.gate_count != gates.size() or simulation.wire_count != wires.size():
+		simulation.compile(gates, get_expanded_wires(wires), wires.size())
+	simulation.advance()
 	tick += 1
 	ticks_in_tps_window += 1
 	status_text = "Advanced one logic tick (20 ms)."
@@ -1120,6 +1175,7 @@ func clamp_canvas_offset() -> void:
 	return
 
 func create_undo_snapshot() -> Dictionary:
+	simulation.sync_all()
 	return {
 		"gunsaw_source_level": gunsaw_source_level.duplicate(true),
 		"gates": gates.duplicate(true),
@@ -1139,6 +1195,8 @@ func push_undo_state() -> void:
 	push_undo_snapshot(create_undo_snapshot())
 
 func push_undo_snapshot(snapshot: Dictionary) -> void:
+	simulation.dirty = true
+	canvas_geometry.dirty = true
 	if snapshot.is_empty():
 		return
 	undo_history.append(snapshot)
@@ -1154,6 +1212,8 @@ func undo_last_action() -> void:
 		status_text = "Nothing to undo."
 		return
 	var snapshot: Dictionary = undo_history.pop_back()
+	simulation.dirty = true
+	canvas_geometry.dirty = true
 	gunsaw_source_level = snapshot.get("gunsaw_source_level", {}).duplicate(true)
 	gates.assign(snapshot["gates"])
 	wires.assign(snapshot["wires"])
