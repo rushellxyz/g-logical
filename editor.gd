@@ -1441,7 +1441,7 @@ func swap_selected_gates(type_index: int) -> void:
 	push_undo_state()
 	for gate_index in selected_gates:
 		var gate: Dictionary = gates[gate_index]
-		for key in ["gunsaw_part", "gunsaw_data", "gunsaw_input_ids", "gunsaw_output_ids", "gunsaw_external_inputs"]:
+		for key in ["gunsaw_part", "gunsaw_data", "gunsaw_input_ids", "gunsaw_output_ids", "gunsaw_external_inputs", "gunsaw_index", "gunsaw_position", "gunsaw_size", "gunsaw_lamp_color"]:
 			gate.erase(key)
 		gate["type_id"] = definition["id"]
 		gate["name"] = definition["name"]
@@ -1678,6 +1678,7 @@ func duplicate_selection(include_external_outputs := false) -> void:
 		var duplicate_gate: Dictionary = gates[source_index].duplicate(true)
 		duplicate_gate["id"] = next_id
 		duplicate_gate.erase("gunsaw_output_ids")
+		duplicate_gate.erase("gunsaw_index")
 		if duplicate_gate.has("gunsaw_part") and duplicate_gate["gunsaw_part"]["path"] == "MP/CustomProp":
 			var payload: Dictionary = JSON.parse_string(duplicate_gate["gunsaw_part"]["team"])
 			payload["uid"] = "editor-%d" % next_id
@@ -2180,6 +2181,14 @@ func save_editor(slot: int = current_save_slot) -> void:
 		return
 	var saved_gates: Array = gates.duplicate(true)
 	for gate in saved_gates:
+		var saved_position: Vector2 = gate["position"]
+		gate["position"] = {"x": saved_position.x, "y": saved_position.y}
+		var import_state := {}
+		for key in ["gunsaw_part", "gunsaw_data"]:
+			if gate.has(key):
+				import_state[key] = gate[key]
+		if not import_state.is_empty():
+			gate["gunsaw_import_state"] = Marshalls.raw_to_base64(var_to_bytes(import_state))
 		var inputs: Array = []
 		var outputs: Array = []
 		var previous_inputs: Array = []
@@ -2242,6 +2251,15 @@ func load_editor(slot: int = current_save_slot) -> void:
 		if not loaded_gate is Dictionary:
 			status_text = "Load failed: invalid component data."
 			return
+		if loaded_gate.has("gunsaw_import_state"):
+			var import_state = bytes_to_var(Marshalls.base64_to_raw(loaded_gate["gunsaw_import_state"]))
+			if not import_state is Dictionary:
+				status_text = "Load failed: invalid imported component state."
+				return
+			for key in ["gunsaw_part", "gunsaw_data"]:
+				if import_state.has(key):
+					loaded_gate[key] = import_state[key]
+			loaded_gate.erase("gunsaw_import_state")
 		if not loaded_gate.has("position"):
 			status_text = "Load failed: component has no position."
 			return
@@ -2305,6 +2323,12 @@ func load_editor(slot: int = current_save_slot) -> void:
 	pending_output = {"gate": -1, "port": -1}
 	clamp_canvas_offset()
 	gunsaw_source_level = parsed.get("gunsaw_source_level", {}).duplicate(true)
+	var source_document: Dictionary = gunsaw_source_level.get("_gunsaw_document", {})
+	if not source_document.is_empty():
+		var preserved: Array = []
+		for index in source_document["preserved_indices"]:
+			preserved.append(JSON.parse_string(GunsawLevelImporter.LevelDocument.normalize_json(source_document["parts"][int(index)])))
+		gunsaw_source_level["parts"] = preserved
 	status_text = "Editor loaded from Slot %d (%s)." % [current_save_slot, save_path]
 	queue_redraw()
 
@@ -2478,7 +2502,15 @@ func export_gunsaw() -> void:
 		preserved_parts.append_array(parts)
 		level = gunsaw_source_level.duplicate(true)
 		level["parts"] = preserved_parts
-	var json := GunsawLevelImporter.stringify_json(level)
+	var document: Dictionary = gunsaw_source_level.get("_gunsaw_document", {})
+	var json: String
+	if not document.is_empty():
+		var source_indices: Array = document["preserved_indices"].duplicate()
+		for index in exported_gate_indices:
+			source_indices.append(gates[index].get("gunsaw_index", -1))
+		json = GunsawLevelImporter.LevelDocument.export_text(document, level["parts"], source_indices, GunsawLevelImporter.stringify_json)
+	else:
+		json = GunsawLevelImporter.stringify_json(level)
 	var zlib_compressed: PackedByteArray = json.to_utf8_buffer().compress(FileAccess.COMPRESSION_DEFLATE)
 	if zlib_compressed.size() < 6:
 		status_text = "Export failed: compression produced invalid data."

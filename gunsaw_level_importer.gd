@@ -1,5 +1,7 @@
 extends RefCounted
 
+const LevelDocument = preload("res://gunsaw_level_document.gd")
+
 const MAX_LEVEL_BYTES := 64 * 1024 * 1024
 const MAX_PARTS := 100000
 const MAX_WIRES := 1000000
@@ -39,7 +41,7 @@ static func import_text(text: String, definitions: Array) -> Dictionary:
 			return decoded
 		text = decoded["text"]
 	var parser := JSON.new()
-	if parser.parse(text) != OK:
+	if parser.parse(LevelDocument.normalize_json(text)) != OK:
 		return {"error": "Invalid level JSON at line %d." % parser.get_error_line()}
 	var level = parser.data
 	if not level is Dictionary or not level.get("parts") is Array:
@@ -54,20 +56,21 @@ static func import_text(text: String, definitions: Array) -> Dictionary:
 	var sources := {}
 	var preserved: Array = []
 	var max_activation_id := 0
+	var document := LevelDocument.capture(text)
 	for part_index in range(level["parts"].size()):
 		var part = level["parts"][part_index]
-		if not part is Dictionary or not part.get("path") is String or not valid_vector(part.get("pos")):
+		if not part is Dictionary or not part.get("path") is String:
 			return {"error": "Invalid object at index %d." % part_index}
-		if not valid_number(part.get("rot", 0)):
-			return {"error": "Invalid rotation at object %d." % part_index}
-		var parsed := parse_part(part, types, gates.size() + 1)
+		var parsed := parse_part(part, types, gates.size() + 1) if valid_vector(part.get("pos")) and valid_number(part.get("rot", 0)) else {}
 		if parsed.has("error"):
-			return {"error": "Object %d: %s" % [part_index, parsed["error"]]}
+			parsed = {}
 		max_activation_id = maxi(max_activation_id, largest_id(part))
 		if parsed.is_empty():
 			preserved.append(part.duplicate(true))
+			document["preserved_indices"].append(part_index)
 			continue
 		var gate: Dictionary = parsed["gate"]
+		gate["gunsaw_index"] = part_index
 		var gate_index := gates.size()
 		gates.append(gate)
 		for port_index in range(gate["gunsaw_output_ids"].size()):
@@ -89,6 +92,7 @@ static func import_text(text: String, definitions: Array) -> Dictionary:
 		gate["gunsaw_external_inputs"] = external_inputs
 	var source_level: Dictionary = level.duplicate(true)
 	source_level["parts"] = preserved
+	source_level["_gunsaw_document"] = document
 	return {"gates": gates, "wires": wires, "source_level": source_level, "next_id": gates.size() + 1, "next_activation_id": max_activation_id + 1, "preserved_count": preserved.size()}
 
 static func decode_level_code(text: String) -> Dictionary:
@@ -182,6 +186,8 @@ static func parse_part(part: Dictionary, types: Dictionary, id: int) -> Dictiona
 			return {"error": "Invalid Activation ID."}
 	var definition: Dictionary = types.get(type_id, {"name": "WHITE TILE", "inputs": [], "outputs": []})
 	var position := Vector2(float(part["pos"]["x"]), -float(part["pos"]["y"])) * SCALE
+	if not position.is_finite():
+		return {}
 	var gate := {
 		"id": id, "type_id": type_id, "name": definition["name"], "position": position,
 		"input_names": definition["inputs"].duplicate(), "output_names": definition["outputs"].duplicate(),
@@ -191,8 +197,9 @@ static func parse_part(part: Dictionary, types: Dictionary, id: int) -> Dictiona
 		"gunsaw_part": part.duplicate(true), "gunsaw_data": data,
 		"gunsaw_input_ids": input_ids, "gunsaw_output_ids": output_ids
 	}
-	if type_id == "MP/IO/LAMP" and not Color.html_is_valid(gate["lamp_color"]):
-		gate["lamp_color"] = "FFFFFF"
+	if type_id == "MP/IO/LAMP":
+		gate["lamp_color"] = Color.from_string(str(part.get("team", "FFD23F")).to_lower(), Color.WHITE).to_html(true)
+		gate["gunsaw_lamp_color"] = gate["lamp_color"]
 	for _port in definition["inputs"]:
 		gate["inputs"].append(false)
 		gate["previous_inputs"].append(false)
@@ -202,13 +209,17 @@ static func parse_part(part: Dictionary, types: Dictionary, id: int) -> Dictiona
 		var size := Vector2(float(part["size"]["x"]), float(part["size"]["y"])) * SCALE
 		gate["size"] = size
 		gate["position"] = position - Vector2(size.x * 0.5, size.y)
+		if not size.is_finite() or not gate["position"].is_finite():
+			return {}
+		gate["gunsaw_size"] = [size.x, size.y]
+	gate["gunsaw_position"] = [gate["position"].x, gate["position"].y]
 	return {"gate": gate}
 
 static func valid_vector(value: Variant) -> bool:
 	return value is Dictionary and valid_number(value.get("x")) and valid_number(value.get("y"))
 
 static func stringify_json(value: Variant, indent: String = "") -> String:
-	var text := JSON.stringify(value, indent)
+	var text := JSON.stringify(value, indent, true, true)
 	if not text.contains("\\v"):
 		return text
 	var pieces := PackedStringArray()
@@ -227,12 +238,14 @@ static func valid_number(value: Variant) -> bool:
 	return (value is float or value is int) and is_finite(float(value))
 
 static func valid_id(value: Variant) -> bool:
-	return valid_number(value) and float(value) == floor(float(value)) and float(value) >= -1 and float(value) < 2147483647
+	return valid_number(value) and float(value) == floor(float(value)) and float(value) >= -2147483648 and float(value) <= 2147483647
 
 static func largest_id(value: Variant) -> int:
 	var result := 0
 	if value is Dictionary:
 		for key in value:
+			if key == "_gunsaw_document":
+				continue
 			if key in ["team", "data"] and value[key] is String:
 				var parser := JSON.new()
 				if value[key].strip_edges().begins_with("{") and parser.parse(value[key]) == OK:
@@ -250,26 +263,37 @@ static func merge_exported_part(gate: Dictionary, generated: Dictionary) -> Dict
 	if not gate.has("gunsaw_part"):
 		return generated
 	var part: Dictionary = gate["gunsaw_part"].duplicate(true)
-	part["pos"] = generated["pos"]
+	var original_position: Array = gate.get("gunsaw_position", [])
+	if original_position.size() != 2 or gate["position"] != Vector2(float(original_position[0]), float(original_position[1])):
+		part["pos"] = generated["pos"]
 	match gate["type_id"]:
 		"MP/IO/BUTTON":
-			part["id"] = generated["id"]
+			if int(part.get("id", 0)) != generated["id"]:
+				part["id"] = generated["id"]
 		"MP/IO/LAMP":
-			part["id"] = generated["id"]
-			if part["path"] == "Building/ColorLamp":
+			if int(part.get("id", 0)) != generated["id"]:
+				part["id"] = generated["id"]
+			if gate.get("lamp_color") != gate.get("gunsaw_lamp_color", ""):
+				part["path"] = "Building/ColorLamp"
 				part["team"] = generated["team"]
 		"EDITOR/WHITETILE":
-			part["size"] = generated["size"]
+			var original_size: Array = gate.get("gunsaw_size", [])
+			if original_size.size() != 2 or gate["size"] != Vector2(float(original_size[0]), float(original_size[1])):
+				part["size"] = generated["size"]
+				part["pos"] = generated["pos"]
 		"GUNSAW/DELAY", "GUNSAW/CYCLE":
-			part["id"] = generated["id"]
-			part["activId"] = generated["activId"]
-			part["force"] = generated["force"]
+			if int(part.get("id", 0)) != generated["id"]:
+				part["id"] = generated["id"]
+			if int(part.get("activId", 0)) != generated["activId"]:
+				part["activId"] = generated["activId"]
+			if part["force"]["x"] != generated["force"]["x"]:
+				part["force"]["x"] = generated["force"]["x"]
 		_:
 			var payload: Dictionary = JSON.parse_string(part["team"])
 			var generated_payload: Dictionary = JSON.parse_string(generated["team"])
 			var data: Dictionary = gate["gunsaw_data"].duplicate(true)
 			var generated_data: Dictionary = JSON.parse_string(generated_payload["data"])
-			var changed: bool = data != JSON.parse_string(payload["data"])
+			var changed: bool = data != JSON.parse_string(payload.get("data", "{}"))
 			for field in PORT_FIELDS[gate["type_id"]][0] + PORT_FIELDS[gate["type_id"]][1]:
 				if int(data.get(field, -1)) != int(generated_data[field]):
 					data[field] = int(generated_data[field])
