@@ -24,7 +24,7 @@ Features:
  - Import from levels, with losses obviously, dont rely on it too much
  - L to hide lines, Ctrl-L to toggle staight wires
  - Foundry mode: saves are separate from normal editor, you create custom components for later use in editor
- - Foundry Inline mode, on export asll gates are collapse in signle point; Foundry Expand mode - keep offsets from foundry and allow placing of buttons and lamps
+ - Foundry Inline mode, on export all gates are collapse in signle point; Foundry Expand mode - keep offsets from foundry and allow placing of buttons and lamps
 
 
 Shout out to Microsoft for providing Copilot with gpt 6 for free!

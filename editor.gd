@@ -1430,17 +1430,36 @@ func handle_press(pos: Vector2, _swap_selected := false, double_click := false) 
 
 func swap_selected_gates(type_index: int) -> void:
 	var definition: Dictionary = GATE_TYPES[type_index]
+	var output_port_maps: Dictionary = {}
+	var input_port_maps: Dictionary = {}
 	for gate_index in selected_gates:
+		var used_outputs: Array[int] = []
+		var used_inputs: Array[int] = []
 		for wire in wires:
-			if wire["from_gate"] == gate_index and wire["from_port"] >= definition["outputs"].size():
-				status_text = "Swap blocked: %s has too few output ports." % definition["name"]
-				return
-			if wire["to_gate"] == gate_index and wire["to_port"] >= definition["inputs"].size():
-				status_text = "Swap blocked: %s has too few input ports." % definition["name"]
-				return
-	push_undo_state()
+			if wire["from_gate"] == gate_index and int(wire["from_port"]) not in used_outputs:
+				used_outputs.append(int(wire["from_port"]))
+			if wire["to_gate"] == gate_index and int(wire["to_port"]) not in used_inputs:
+				used_inputs.append(int(wire["to_port"]))
+		used_outputs.sort()
+		used_inputs.sort()
+		if used_outputs.size() > definition["outputs"].size():
+			status_text = "Swap blocked: %s has too few output ports for the connected outputs." % definition["name"]
+			return
+		if used_inputs.size() > definition["inputs"].size():
+			status_text = "Swap blocked: %s has too few input ports for the connected inputs." % definition["name"]
+			return
+		var output_map: Dictionary = {}
+		for index in range(used_outputs.size()):
+			output_map[used_outputs[index]] = index
+		var input_map: Dictionary = {}
+		for index in range(used_inputs.size()):
+			input_map[used_inputs[index]] = index
+		output_port_maps[gate_index] = output_map
+		input_port_maps[gate_index] = input_map
+	var swapped_gates: Array[Dictionary] = gates.duplicate(true)
+	var swapped_wires: Array[Dictionary] = wires.duplicate(true)
 	for gate_index in selected_gates:
-		var gate: Dictionary = gates[gate_index]
+		var gate: Dictionary = swapped_gates[gate_index]
 		for key in ["gunsaw_part", "gunsaw_data", "gunsaw_input_ids", "gunsaw_output_ids", "gunsaw_external_inputs", "gunsaw_index", "gunsaw_position", "gunsaw_size", "gunsaw_lamp_color"]:
 			gate.erase(key)
 		gate["type_id"] = definition["id"]
@@ -1464,12 +1483,53 @@ func swap_selected_gates(type_index: int) -> void:
 			gate["lamp_color"] = "FFD23F"
 		else:
 			gate["state"] = false
+	for wire_index in range(swapped_wires.size()):
+		var original_wire: Dictionary = wires[wire_index]
+		var wire: Dictionary = swapped_wires[wire_index]
+		var source_gate := int(original_wire["from_gate"])
+		var source_port := int(original_wire["from_port"])
+		var target_gate := int(original_wire["to_gate"])
+		var target_port := int(original_wire["to_port"])
+		if output_port_maps.has(source_gate):
+			if not output_port_maps[source_gate].has(source_port):
+				status_text = "Swap blocked: a connected output port is invalid."
+				return
+			source_port = int(output_port_maps[source_gate][source_port])
+		if input_port_maps.has(target_gate):
+			if not input_port_maps[target_gate].has(target_port):
+				status_text = "Swap blocked: a connected input port is invalid."
+				return
+			target_port = int(input_port_maps[target_gate][target_port])
+		wire["from_port"] = source_port
+		wire["to_port"] = target_port
+	if not are_wire_endpoints_valid(swapped_gates, swapped_wires):
+		status_text = "Swap blocked: a wire endpoint would be invalid."
+		return
+	push_undo_state()
+	gates.assign(swapped_gates)
+	wires.assign(swapped_wires)
+	canvas_geometry.dirty = true
+	simulation.dirty = true
 	status_text = "Swapped %d gate%s to %s. Shift-click toolbar gates to swap again." % [
 		selected_gates.size(),
 		"" if selected_gates.size() == 1 else "s",
 		definition["name"]
 	]
 	queue_redraw()
+
+func are_wire_endpoints_valid(source_gates: Array, source_wires: Array) -> bool:
+	for wire in source_wires:
+		var from_gate := int(wire.get("from_gate", -1))
+		var to_gate := int(wire.get("to_gate", -1))
+		if from_gate < 0 or from_gate >= source_gates.size() or to_gate < 0 or to_gate >= source_gates.size():
+			return false
+		var source: Dictionary = source_gates[from_gate]
+		var target: Dictionary = source_gates[to_gate]
+		var from_port := int(wire.get("from_port", -1))
+		var to_port := int(wire.get("to_port", -1))
+		if from_port < 0 or from_port >= source["outputs"].size() or to_port < 0 or to_port >= target["inputs"].size():
+			return false
+	return true
 
 func finish_box_selection() -> void:
 	var selection_rect := Rect2(selection_start, selection_current - selection_start).abs()
@@ -1934,6 +1994,52 @@ func normalized_position(value: Variant) -> Vector2:
 			return Vector2(float(parts[0]), float(parts[1]))
 	return Vector2.ZERO
 
+func normalize_custom_component_geometry(gate: Dictionary) -> void:
+	if gate.get("type_id", "") != "EDITOR/CUSTOM":
+		return
+	var child_gates: Array = gate.get("custom_gates", [])
+	for child_gate in child_gates:
+		if not child_gate is Dictionary:
+			continue
+		if child_gate.has("position"):
+			child_gate["position"] = normalized_position(child_gate["position"])
+		if child_gate.get("type_id", "") == "EDITOR/WHITETILE" and child_gate.has("size"):
+			child_gate["size"] = normalized_position(child_gate["size"])
+		normalize_custom_component_geometry(child_gate)
+	var layout: String = str(gate.get("custom_layout_mode", "Inline"))
+	if layout != "Expand" or child_gates.is_empty():
+		if gate.has("custom_origin"):
+			gate["custom_origin"] = normalized_position(gate["custom_origin"])
+		if gate.has("custom_size"):
+			gate["custom_size"] = normalized_position(gate["custom_size"])
+		return
+	var min_position := Vector2(INF, INF)
+	var max_position := Vector2(-INF, -INF)
+	for child_gate in child_gates:
+		var child_position: Vector2 = normalized_position(child_gate.get("position", Vector2.ZERO))
+		min_position = min_position.min(child_position)
+		max_position = max_position.max(child_position + GateProperties.node_size(child_gate, NODE_SIZE))
+	gate["custom_origin"] = min_position
+	gate["custom_size"] = max_position - min_position + Vector2(32, 64)
+
+func serialize_custom_component_geometry(gate: Dictionary) -> void:
+	if gate.get("type_id", "") != "EDITOR/CUSTOM":
+		return
+	var custom_origin: Vector2 = normalized_position(gate.get("custom_origin", Vector2.ZERO))
+	var custom_size: Vector2 = normalized_position(gate.get("custom_size", NODE_SIZE))
+	gate["custom_origin"] = {"x": custom_origin.x, "y": custom_origin.y}
+	gate["custom_size"] = {"x": custom_size.x, "y": custom_size.y}
+	var child_gates: Array = gate.get("custom_gates", [])
+	for child_gate in child_gates:
+		if not child_gate is Dictionary:
+			continue
+		var child_position: Vector2 = normalized_position(child_gate.get("position", Vector2.ZERO))
+		child_gate["position"] = {"x": child_position.x, "y": child_position.y}
+		if child_gate.get("type_id", "") == "EDITOR/WHITETILE":
+			var child_size: Vector2 = GateProperties.node_size(child_gate, NODE_SIZE)
+			child_gate["size"] = {"x": child_size.x, "y": child_size.y}
+		serialize_custom_component_geometry(child_gate)
+
 func expand_custom_components(source_wires: Array = []) -> Dictionary:
 	if source_wires.is_empty():
 		source_wires = wires
@@ -2208,6 +2314,7 @@ func save_editor(slot: int = current_save_slot) -> void:
 			gate["size"] = {"x": tile_size.x, "y": tile_size.y}
 		gate["pulse_pending"] = false
 		if gate["type_id"] == "EDITOR/CUSTOM":
+			serialize_custom_component_geometry(gate)
 			LogicSimulator.reset(gate["custom_gates"])
 	LogicSimulator.reset(saved_gates)
 	var document := {
@@ -2277,6 +2384,7 @@ func load_editor(slot: int = current_save_slot) -> void:
 		else:
 			status_text = "Load failed: invalid component position."
 			return
+		normalize_custom_component_geometry(loaded_gate)
 		if loaded_gate["type_id"] == "EDITOR/WHITETILE":
 			var loaded_size = loaded_gate.get("size", {"x": 320.0, "y": 64.0})
 			if loaded_size is Dictionary and loaded_size.has("x") and loaded_size.has("y"):
