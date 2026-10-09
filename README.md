@@ -21,6 +21,11 @@ Features:
  - Clock IN/Clock OUT components, that are just expanded to wire from clock in to all clock outs on export; there to keep your project a bit more clean
  - Multiple save slots
  - Ctrl-Z to undo the last edit (up to 100 edits)
+ - Import from levels, with losses obviously, dont rely on it too much
+ - L to hide lines, Ctrl-L to toggle staight wires
+ - Foundry mode: saves are separate from normal editor, you create custom components for later use in editor
+ - Foundry Inline mode, on export asll gates are collapse in signle point; Foundry Expand mode - keep offsets from foundry and allow placing of buttons and lamps
+
 
 Shout out to Microsoft for providing Copilot with gpt 6 for free!
 Yep, its 100% vibecoded and yep, i have no idea how it works

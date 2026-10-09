@@ -22,10 +22,10 @@ func update(gates: Array, wires: Array, node_size: Vector2) -> void:
 	var output_positions: Array = []
 	for gate in gates:
 		var position: Vector2 = gate["position"]
-		var size := GateProperties.node_size(gate, node_size)
+		var size: Vector2 = GateProperties.node_size(gate, node_size)
 		gate_bounds.append(Rect2(position, size))
-		input_positions.append(ports(position, gate["inputs"].size(), 0.0))
-		output_positions.append(ports(position, gate["outputs"].size(), node_size.x))
+		input_positions.append(ports(gate, position, gate["inputs"].size(), 0.0, true))
+		output_positions.append(ports(gate, position, gate["outputs"].size(), size.x, false))
 	for wire in wires:
 		var start: Vector2 = output_positions[wire["from_gate"]][wire["from_port"]]
 		var end: Vector2 = input_positions[wire["to_gate"]][wire["to_port"]]
@@ -50,8 +50,8 @@ func route(start: Vector2, end: Vector2, source: Rect2, target: Rect2, output_po
 	var lane_y := top_y if absf(start.y - top_y) + absf(end.y - top_y) <= absf(start.y - bottom_y) + absf(end.y - bottom_y) else bottom_y
 	return PackedVector2Array([start, Vector2(exit_x, start.y), Vector2(exit_x, lane_y), Vector2(entry_x, lane_y), Vector2(entry_x, end.y), end])
 
-func ports(position: Vector2, count: int, x_offset: float) -> PackedVector2Array:
+func ports(gate: Dictionary, position: Vector2, count: int, x_offset: float, input: bool) -> PackedVector2Array:
 	var result := PackedVector2Array()
 	for port in range(count):
-		result.append(position + Vector2(x_offset, 42.0 + (port + 1) * (42.0 / count)))
+		result.append(position + Vector2(x_offset, GateProperties.port_y(gate, input, port)))
 	return result

@@ -44,8 +44,30 @@ func _ready() -> void:
 static func node_size(gate: Dictionary, base: Vector2) -> Vector2:
 	if gate["type_id"] == "EDITOR/WHITETILE":
 		return gate.get("size", Vector2(320, 64))
+	if gate["type_id"] == "EDITOR/CUSTOM":
+		var custom_size: Vector2 = base
+		if gate.get("custom_layout_mode", "Inline") == "Expand":
+			var saved_size = gate.get("custom_size", base)
+			if saved_size is Vector2:
+				custom_size = saved_size
+			elif saved_size is Dictionary:
+				custom_size = Vector2(float(saved_size.get("x", base.x)), float(saved_size.get("y", base.y)))
+			elif saved_size is Array and saved_size.size() == 2:
+				custom_size = Vector2(float(saved_size[0]), float(saved_size[1]))
+		var port_count: int = maxi(gate.get("input_names", []).size(), gate.get("output_names", []).size())
+		custom_size.y = maxf(maxf(custom_size.y, base.y), 50.0 + float(port_count + 1) * 14.0)
+		return custom_size
 	var count: int = FIELDS.get(gate["type_id"], []).size()
 	return base + Vector2(0, 4 + count * 28 if count > 0 else 0)
+
+static func port_y(gate: Dictionary, input: bool, port: int) -> float:
+	var inputs: Array = gate.get("inputs", [])
+	var outputs: Array = gate.get("outputs", [])
+	var count: int = inputs.size() if input else outputs.size()
+	var spacing := 42.0 / float(maxi(count, 1))
+	if gate.get("type_id", "") == "EDITOR/CUSTOM" and maxi(inputs.size(), outputs.size()) > 4:
+		spacing = 14.0
+	return 42.0 + (port + 1) * spacing
 
 static func field_rect(gate: Dictionary, row: int) -> Rect2:
 	return Rect2(gate["position"] + Vector2(8, 96 + row * 28), Vector2(154, 24))
