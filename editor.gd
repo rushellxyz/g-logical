@@ -58,6 +58,7 @@ var resize_start_size := Vector2.ZERO
 var drag_offset := Vector2.ZERO
 var drag_group_origins: Dictionary = {}
 var pending_output := {"gate": -1, "port": -1}
+var connecting_wire := false
 var tick := 0
 var running := false
 var simulation_accumulator := 0.0
@@ -1120,8 +1121,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.pressed:
 			handle_press(event.position, event.shift_pressed, event.double_click)
 		else:
+			if connecting_wire and pending_output["gate"] >= 0 and not physical_mode and event.position.y >= toolbar_height:
+				var port := find_port(screen_to_canvas(event.position))
+				if port["gate"] >= 0 and port["input"]:
+					connect_wire(pending_output["gate"], pending_output["port"], port["gate"], port["port"])
+			connecting_wire = false
 			if selecting:
 				finish_box_selection()
+			canvas_geometry.finish_moving()
+			queue_redraw()
 			if button_candidate >= 0 and button_press_position.distance_to(event.position) <= 8.0:
 				gates[button_candidate]["pulse_pending"] = true
 				selected_gate = button_candidate
@@ -1152,17 +1160,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		handle_delete_press(event.position)
 	if event is InputEventMouseMotion and dragging_gate >= 0:
-		canvas_geometry.dirty = true
 		var dragged_position := snap_position(screen_to_canvas(event.position) - drag_offset)
 		var movement: Vector2 = dragged_position - drag_group_origins[dragging_gate]
 		if movement != Vector2.ZERO and not drag_undo_recorded:
-			push_undo_snapshot(drag_undo_snapshot)
+			push_undo_snapshot(drag_undo_snapshot, false)
 			drag_undo_recorded = true
 		for gate_index in selected_gates:
 			gates[gate_index]["position"] = snap_position(drag_group_origins[gate_index] + movement)
+		canvas_geometry.update_moved_gates(gates, wires, selected_gates, NODE_SIZE)
 		queue_redraw()
 	if event is InputEventMouseMotion and resizing_gate >= 0:
-		canvas_geometry.dirty = true
 		var resized_position := screen_to_canvas(event.position)
 		var new_size := resized_position - resize_start_position
 		var updated_size := Vector2(
@@ -1170,9 +1177,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			maxf(PHYSICAL_UNIT_SIZE, snapped(new_size.y, PHYSICAL_UNIT_SIZE))
 		)
 		if updated_size != gate_size(gates[resizing_gate]) and not drag_undo_recorded:
-			push_undo_snapshot(drag_undo_snapshot)
+			push_undo_snapshot(drag_undo_snapshot, false)
 			drag_undo_recorded = true
 		gates[resizing_gate]["size"] = updated_size
+		canvas_geometry.update_moved_gates(gates, wires, [resizing_gate], NODE_SIZE)
 		queue_redraw()
 	if event is InputEventMouseMotion and selecting:
 		selection_current = event.position
@@ -1271,6 +1279,7 @@ func _on_save_slot_menu_id_pressed(action_id: int) -> void:
 		load_editor(action_id - 10)
 
 func handle_press(pos: Vector2, _swap_selected := false, double_click := false) -> void:
+	connecting_wire = false
 	if pos.y < toolbar_height:
 		return
 	gate_properties.commit()
@@ -1288,7 +1297,8 @@ func handle_press(pos: Vector2, _swap_selected := false, double_click := false) 
 				connect_wire(pending_output["gate"], pending_output["port"], port["gate"], port["port"])
 			return
 		pending_output = {"gate": port["gate"], "port": port["port"]}
-		status_text = "Select an input port to finish the connection."
+		connecting_wire = true
+		status_text = "Click an input port or drag to it to finish the connection."
 		queue_redraw()
 		return
 	if not physical_mode and canvas_zoom >= 0.5:
@@ -2090,17 +2100,24 @@ func create_undo_snapshot() -> Dictionary:
 func push_undo_state() -> void:
 	push_undo_snapshot(create_undo_snapshot())
 
-func push_undo_snapshot(snapshot: Dictionary) -> void:
-	simulation.dirty = true
-	canvas_geometry.dirty = true
+func push_undo_snapshot(snapshot: Dictionary, invalidate: bool = true) -> void:
+	if invalidate:
+		simulation.dirty = true
+		canvas_geometry.dirty = true
 	if snapshot.is_empty():
 		return
-	undo_history.append(snapshot)
+	undo_history.append(snapshot.duplicate())
 	if undo_history.size() > MAX_UNDO_STEPS:
 		undo_history.pop_front()
 
 func begin_drag_undo() -> void:
-	drag_undo_snapshot = create_undo_snapshot()
+	var transforms: Array = []
+	for index in selected_gates:
+		var transform := {"index": index, "position": gates[index]["position"]}
+		if gates[index].has("size"):
+			transform["size"] = gates[index]["size"]
+		transforms.append(transform)
+	drag_undo_snapshot = {"gate_transforms": transforms}
 	drag_undo_recorded = false
 
 func undo_last_action() -> void:
@@ -2109,6 +2126,22 @@ func undo_last_action() -> void:
 		status_text = "Nothing to undo."
 		return
 	var snapshot: Dictionary = undo_history.pop_back()
+	if snapshot.has("gate_transforms"):
+		for transform in snapshot["gate_transforms"]:
+			var gate: Dictionary = gates[transform["index"]]
+			gate["position"] = transform["position"]
+			if transform.has("size"):
+				gate["size"] = transform["size"]
+		canvas_geometry.dirty = true
+		canvas_geometry.moving = false
+		dragging_gate = -1
+		resizing_gate = -1
+		drag_group_origins.clear()
+		drag_undo_snapshot.clear()
+		drag_undo_recorded = false
+		status_text = "Undid last action."
+		queue_redraw()
+		return
 	simulation.dirty = true
 	canvas_geometry.dirty = true
 	gunsaw_source_level = snapshot.get("gunsaw_source_level", {}).duplicate(true)

@@ -22,11 +22,16 @@ var routing_cancelled := false
 var routing_results: Array[PackedVector2Array] = []
 var wire_routed: Array[bool] = []
 var routing_failures := 0
+var gate_wires: Array[PackedInt32Array] = []
+var moving := false
 
 func update(gates: Array, wires: Array, node_size: Vector2) -> void:
 	if not dirty and gate_bounds.size() == gates.size() and wire_bounds.size() == wires.size():
 		return
 	stop_routing()
+	moving = false
+	gate_wires.clear()
+	gate_wires.resize(gates.size())
 	gate_bounds.clear()
 	wire_bounds.clear()
 	wire_starts.clear()
@@ -53,6 +58,10 @@ func update(gates: Array, wires: Array, node_size: Vector2) -> void:
 	routing_wires = wires.duplicate(true) if orthogonal else []
 	routing_index = 0
 	for wire in wires:
+		var wire_index := wire_paths.size()
+		gate_wires[wire["from_gate"]].append(wire_index)
+		if wire["to_gate"] != wire["from_gate"]:
+			gate_wires[wire["to_gate"]].append(wire_index)
 		var start: Vector2 = output_positions[wire["from_gate"]][wire["from_port"]]
 		var end: Vector2 = input_positions[wire["to_gate"]][wire["to_port"]]
 		wire_starts.append(start)
@@ -77,6 +86,40 @@ func update(gates: Array, wires: Array, node_size: Vector2) -> void:
 		routing_cancelled = false
 		routing_thread = Thread.new()
 		routing_thread.start(build_routes.bind(gate_bounds.duplicate(), wire_starts.duplicate(), wire_ends.duplicate(), routing_wires.duplicate(true), routing_bounds))
+
+func update_moved_gates(gates: Array, wires: Array, indices: Array, node_size: Vector2) -> void:
+	update(gates, wires, node_size)
+	var affected: Dictionary = {}
+	for index in indices:
+		var gate: Dictionary = gates[index]
+		var bounds := Rect2(gate["position"], GateProperties.node_size(gate, node_size))
+		if gate_bounds[index] == bounds:
+			continue
+		gate_bounds[index] = bounds
+		moving = true
+		for wire_index in gate_wires[index]:
+			affected[wire_index] = true
+	for index in affected:
+		var wire: Dictionary = wires[index]
+		var source: Dictionary = gates[wire["from_gate"]]
+		var target: Dictionary = gates[wire["to_gate"]]
+		var start: Vector2 = source["position"] + Vector2(gate_bounds[wire["from_gate"]].size.x, GateProperties.port_y(source, false, wire["from_port"]))
+		var end: Vector2 = target["position"] + Vector2(0.0, GateProperties.port_y(target, true, wire["to_port"]))
+		wire_starts[index] = start
+		wire_ends[index] = end
+		var path := PackedVector2Array([start, end])
+		wire_paths[index] = path
+		wire_routed[index] = not orthogonal
+		wire_distances[index] = PackedFloat32Array([0.0, start.distance_to(end)])
+		wire_bounds[index] = Rect2(start, Vector2.ZERO).expand(end)
+		if orthogonal:
+			wire_core_segments[index] = WireGeometry.rendered_segments(path, true)
+			wire_border_segments[index] = WireGeometry.rendered_segments(path, false)
+
+func finish_moving() -> void:
+	if moving and orthogonal:
+		dirty = true
+	moving = false
 
 func stop_routing() -> void:
 	if routing_thread != null:
@@ -114,6 +157,8 @@ func routing_should_stop() -> bool:
 	return result
 
 func advance_routing(budget_usec := 3000) -> bool:
+	if moving:
+		return false
 	if routing_thread != null and routing_index >= routing_wires.size() and not routing_thread.is_alive():
 		stop_routing()
 	if dirty or not orthogonal or routing_index >= routing_wires.size():
