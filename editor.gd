@@ -55,6 +55,8 @@ var dragging_gate := -1
 var resizing_gate := -1
 var resize_start_position := Vector2.ZERO
 var resize_start_size := Vector2.ZERO
+var resize_start_mouse := Vector2.ZERO
+var resize_edges := Vector2i.ZERO
 var drag_offset := Vector2.ZERO
 var drag_group_origins: Dictionary = {}
 var pending_output := {"gate": -1, "port": -1}
@@ -842,7 +844,9 @@ func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 		draw_rect(rect, Color("#434443"), true)
 		draw_rect(rect, Color("#9ca9a0") if gate_index not in selected_gates else Color("#71c28b"), false, 2)
 		if gate_index in selected_gates:
-			draw_rect(Rect2(rect.end - Vector2(10, 10), Vector2(10, 10)), Color("#71c28b"), true)
+			for edge_x in [0.0, rect.size.x * 0.5, rect.size.x]:
+				for edge_y in [0.0, rect.size.y * 0.5, rect.size.y]:
+					draw_rect(Rect2(rect.position + Vector2(edge_x, edge_y) - Vector2(4, 4), Vector2(8, 8)), Color("#71c28b"), true)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	var is_selected: bool = gate_index in selected_gates
@@ -874,6 +878,8 @@ func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 		var child_gates: Array = gate.get("custom_gates", [])
 		var child_origin: Vector2 = normalized_position(gate.get("custom_origin", Vector2.ZERO))
 		for child_gate in child_gates:
+			if not is_custom_child_visible(child_gate):
+				continue
 			if child_gate.get("type_id", "") in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"]:
 				continue
 			var child_position: Vector2 = gate["position"] + normalized_position(child_gate.get("position", Vector2.ZERO)) - child_origin + Vector2(16, 40)
@@ -899,13 +905,38 @@ func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func is_physical_gate(gate: Dictionary) -> bool:
+	if gate["type_id"] == "EDITOR/CUSTOM":
+		if gate.get("custom_layout_mode", "Inline") != "Expand":
+			return false
+		for child_gate in gate.get("custom_gates", []):
+			if is_physical_gate(child_gate):
+				return true
+		return false
 	return is_physical_gate_type(gate["type_id"])
+
+func is_custom_child_visible(gate: Dictionary) -> bool:
+	return not physical_mode or is_physical_gate(gate)
 
 func is_physical_gate_type(type_id: String) -> bool:
 	return type_id in ["MP/IO/BUTTON", "MP/IO/LAMP", "EDITOR/WHITETILE"]
 
 func gate_size(gate: Dictionary) -> Vector2:
 	return GateProperties.node_size(gate, NODE_SIZE)
+
+func white_tile_resize_edges(rect: Rect2, point: Vector2) -> Vector2i:
+	var handle_radius := 12.0
+	if not rect.grow(handle_radius).has_point(point):
+		return Vector2i.ZERO
+	var edges := Vector2i.ZERO
+	if absf(point.x - rect.position.x) <= handle_radius:
+		edges.x = -1
+	elif absf(point.x - rect.end.x) <= handle_radius:
+		edges.x = 1
+	if absf(point.y - rect.position.y) <= handle_radius:
+		edges.y = -1
+	elif absf(point.y - rect.end.y) <= handle_radius:
+		edges.y = 1
+	return edges
 
 func custom_child_port_position(instance: Dictionary, child: Dictionary, port: int, input: bool, origin: Vector2) -> Vector2:
 	var child_type: String = child.get("type_id", "")
@@ -1170,17 +1201,27 @@ func _unhandled_input(event: InputEvent) -> void:
 		canvas_geometry.update_moved_gates(gates, wires, selected_gates, NODE_SIZE)
 		queue_redraw()
 	if event is InputEventMouseMotion and resizing_gate >= 0:
-		var resized_position := screen_to_canvas(event.position)
-		var new_size := resized_position - resize_start_position
-		var updated_size := Vector2(
-			maxf(PHYSICAL_UNIT_SIZE, snapped(new_size.x, PHYSICAL_UNIT_SIZE)),
-			maxf(PHYSICAL_UNIT_SIZE, snapped(new_size.y, PHYSICAL_UNIT_SIZE))
-		)
-		if updated_size != gate_size(gates[resizing_gate]) and not drag_undo_recorded:
+		var mouse_delta := screen_to_canvas(event.position) - resize_start_mouse
+		var snapped_delta := Vector2(snapped(mouse_delta.x, PHYSICAL_UNIT_SIZE), snapped(mouse_delta.y, PHYSICAL_UNIT_SIZE))
+		var updated_position := resize_start_position
+		var updated_size := resize_start_size
+		if resize_edges.x < 0:
+			updated_size.x = maxf(PHYSICAL_UNIT_SIZE, resize_start_size.x - snapped_delta.x)
+			updated_position.x = resize_start_position.x + resize_start_size.x - updated_size.x
+		elif resize_edges.x > 0:
+			updated_size.x = maxf(PHYSICAL_UNIT_SIZE, resize_start_size.x + snapped_delta.x)
+		if resize_edges.y < 0:
+			updated_size.y = maxf(PHYSICAL_UNIT_SIZE, resize_start_size.y - snapped_delta.y)
+			updated_position.y = resize_start_position.y + resize_start_size.y - updated_size.y
+		elif resize_edges.y > 0:
+			updated_size.y = maxf(PHYSICAL_UNIT_SIZE, resize_start_size.y + snapped_delta.y)
+		if (updated_size != gate_size(gates[resizing_gate]) or updated_position != gates[resizing_gate]["position"]) and not drag_undo_recorded:
 			push_undo_snapshot(drag_undo_snapshot, false)
 			drag_undo_recorded = true
+		gates[resizing_gate]["position"] = updated_position
 		gates[resizing_gate]["size"] = updated_size
-		canvas_geometry.update_moved_gates(gates, wires, [resizing_gate], NODE_SIZE)
+		canvas_geometry.dirty = true
+		canvas_geometry.update(gates, wires, NODE_SIZE)
 		queue_redraw()
 	if event is InputEventMouseMotion and selecting:
 		selection_current = event.position
@@ -1387,19 +1428,22 @@ func handle_press(pos: Vector2, _swap_selected := false, double_click := false) 
 				return
 			if physical_mode and gates[i]["type_id"] == "EDITOR/WHITETILE":
 				selected_gate = i
+				selected_gates = [i]
 				selected_wire = -1
-				var resize_handle := Rect2(rect.end - Vector2(14, 14), Vector2(14, 14))
-				if resize_handle.has_point(pos):
+				var edges := white_tile_resize_edges(rect, pos)
+				if edges != Vector2i.ZERO:
 					resizing_gate = i
 					begin_drag_undo()
 					resize_start_position = gates[i]["position"]
 					resize_start_size = gate_size(gates[i])
+					resize_start_mouse = pos
+					resize_edges = edges
 				else:
 					dragging_gate = i
 					begin_drag_undo()
 					drag_offset = pos - gates[i]["position"]
 					drag_group_origins = {i: gates[i]["position"]}
-				status_text = "Selected WhiteTile. Drag the corner to resize."
+				status_text = "Selected WhiteTile. Drag an edge or corner to resize."
 				queue_redraw()
 				return
 			selected_gate = i
@@ -2559,21 +2603,7 @@ func export_gunsaw() -> void:
 			exported_count += 1
 			continue
 		if gate["type_id"] == "EDITOR/WHITETILE":
-			var tile_size := gate_size(gate)
-			var tile_position: Vector2 = gate["position"]
-			parts.append({
-				"pos": {
-					"x": (tile_position.x + tile_size.x * 0.5) / WHITETILE_EXPORT_SCALE,
-					"y": -(tile_position.y + tile_size.y) / WHITETILE_EXPORT_SCALE
-				},
-				"rot": 0.0,
-				"path": "Building/WhiteTile",
-				"id": 0,
-				"activId": 0,
-				"team": "",
-				"size": {"x": tile_size.x / WHITETILE_EXPORT_SCALE, "y": tile_size.y / WHITETILE_EXPORT_SCALE},
-				"force": {"x": 0.0, "y": 0.0}
-			})
+			parts.append(white_tile_export_part(gate))
 			exported_count += 1
 			continue
 		var data := build_gunsaw_data(gate_index, output_ids, export_wires)
@@ -2635,6 +2665,23 @@ func export_gunsaw() -> void:
 	file.close()
 	DisplayServer.clipboard_set(encoded)
 	status_text = "Exported %d props to clipboard and %s." % [exported_count, EXPORT_PATH]
+
+func white_tile_export_part(gate: Dictionary) -> Dictionary:
+	var tile_size := gate_size(gate)
+	var tile_position: Vector2 = gate["position"]
+	return {
+		"pos": {
+			"x": (tile_position.x + tile_size.x * 0.5) / WHITETILE_EXPORT_SCALE,
+			"y": -(tile_position.y + tile_size.y * 0.5) / WHITETILE_EXPORT_SCALE
+		},
+		"rot": 0.0,
+		"path": "Building/WhiteTile",
+		"id": 0,
+		"activId": 0,
+		"team": "",
+		"size": {"x": tile_size.x / WHITETILE_EXPORT_SCALE, "y": tile_size.y / WHITETILE_EXPORT_SCALE},
+		"force": {"x": 0.0, "y": 0.0}
+	}
 
 func build_gunsaw_data(gate_index: int, output_ids: Array, export_wires: Array) -> Dictionary:
 	var gate: Dictionary = gates[gate_index]

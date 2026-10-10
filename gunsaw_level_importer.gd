@@ -208,7 +208,7 @@ static func parse_part(part: Dictionary, types: Dictionary, id: int) -> Dictiona
 	if type_id == "EDITOR/WHITETILE":
 		var size := Vector2(float(part["size"]["x"]), float(part["size"]["y"])) * SCALE
 		gate["size"] = size
-		gate["position"] = position - Vector2(size.x * 0.5, size.y)
+		gate["position"] = position - size * 0.5
 		if not size.is_finite() or not gate["position"].is_finite():
 			return {}
 		gate["gunsaw_size"] = [size.x, size.y]
