@@ -9,6 +9,7 @@ Features:
  - Left click to drag gate and interact with button
  - Zoom on mouse wheel
  - Save/load feature
+ - Some built-in examples
  - Ctrl-Alt-Shift-O to open save directory
  - Export into valid gunsaw level
  - Repaintable lamp

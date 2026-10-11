@@ -108,6 +108,7 @@ var ticks_in_tps_window := 0
 var ticks_per_second := 0.0
 const SAVE_PATH := "user://g-logical-editor.json"
 const SAVE_SLOT_COUNT := 5
+const EXAMPLE_DIRECTORY := "res://examples"
 const MAX_UNDO_STEPS := 100
 const EXPORT_PATH := "user://g-logical-level.txt"
 var status_text := "Click a gate button, then connect ports."
@@ -123,6 +124,8 @@ var foundry_mode_button: Button
 var toolbar_height := TOPBAR_HEIGHT
 var lamp_color_picker: ColorPickerButton
 var save_slot_menu: PopupMenu
+var example_menu: PopupMenu
+var example_menu_paths: Array[String] = []
 var import_menu: PopupMenu
 var import_dialog: FileDialog
 var gunsaw_source_level: Dictionary = {}
@@ -148,6 +151,10 @@ func _ready() -> void:
 	save_slot_menu = PopupMenu.new()
 	save_slot_menu.id_pressed.connect(_on_save_slot_menu_id_pressed)
 	add_child(save_slot_menu)
+	example_menu = PopupMenu.new()
+	example_menu.name = "ExamplesMenu"
+	example_menu.id_pressed.connect(_on_example_menu_id_pressed)
+	save_slot_menu.add_child(example_menu)
 	component_menu = PopupMenu.new()
 	component_menu.id_pressed.connect(_on_component_menu_id_pressed)
 	add_child(component_menu)
@@ -1436,17 +1443,50 @@ func open_user_folder() -> void:
 
 func open_save_slot_menu(_pos: Vector2, saving: bool) -> void:
 	save_slot_menu.clear()
+	if not saving:
+		example_menu.clear()
+		example_menu_paths = example_project_paths()
 	for slot in range(1, SAVE_SLOT_COUNT + 1):
 		var action_id := slot if saving else slot + 10
 		save_slot_menu.add_item("%s Slot %d" % ["Save to" if saving else "Load", slot], action_id)
+	if not saving:
+		save_slot_menu.add_separator()
+		save_slot_menu.add_submenu_item("Examples", "ExamplesMenu")
+		if example_menu_paths.is_empty():
+			example_menu.add_item("No examples available")
+			example_menu.set_item_disabled(0, true)
+		else:
+			for index in range(example_menu_paths.size()):
+				example_menu.add_item(example_menu_paths[index].get_file().get_basename(), index)
 	save_slot_menu.position = DisplayServer.mouse_get_position()
 	save_slot_menu.popup()
+
+func example_project_paths() -> Array[String]:
+	var result: Array[String] = []
+	var directory := DirAccess.open(EXAMPLE_DIRECTORY)
+	if directory == null:
+		status_text = "Could not list example projects: %s." % error_string(DirAccess.get_open_error())
+		return result
+	directory.list_dir_begin()
+	var entry := directory.get_next()
+	while not entry.is_empty():
+		if not directory.current_is_dir() and entry.get_extension().to_lower() == "json":
+			result.append("%s/%s" % [EXAMPLE_DIRECTORY, entry])
+		entry = directory.get_next()
+	directory.list_dir_end()
+	result.sort()
+	return result
 
 func _on_save_slot_menu_id_pressed(action_id: int) -> void:
 	if action_id >= 1 and action_id <= SAVE_SLOT_COUNT:
 		save_editor(action_id)
 	elif action_id >= 11 and action_id < 11 + SAVE_SLOT_COUNT:
 		load_editor(action_id - 10)
+
+func _on_example_menu_id_pressed(index: int) -> void:
+	if index < 0 or index >= example_menu_paths.size():
+		return
+	load_editor_from_path(example_menu_paths[index], "Example '%s'" % example_menu_paths[index].get_file().get_basename())
 
 func handle_press(pos: Vector2, _swap_selected := false, double_click := false) -> void:
 	connecting_wire = false
@@ -2504,11 +2544,14 @@ func save_editor(slot: int = current_save_slot) -> void:
 	status_text = "Editor saved to Slot %d (%s)." % [current_save_slot, save_path]
 
 func load_editor(slot: int = current_save_slot) -> void:
-	gate_properties.cancel()
 	current_save_slot = clampi(slot, 1, SAVE_SLOT_COUNT)
 	var save_path := save_slot_path(current_save_slot)
+	load_editor_from_path(save_path, "Slot %d" % current_save_slot)
+
+func load_editor_from_path(save_path: String, source_name: String) -> void:
+	gate_properties.cancel()
 	if not FileAccess.file_exists(save_path):
-		status_text = "No saved editor project found."
+		status_text = "No saved editor project found." if source_name.begins_with("Slot ") else "Example project not found: %s." % save_path
 		return
 	var file := FileAccess.open(save_path, FileAccess.READ)
 	if file == null:
@@ -2610,7 +2653,7 @@ func load_editor(slot: int = current_save_slot) -> void:
 		for index in source_document["preserved_indices"]:
 			preserved.append(JSON.parse_string(GunsawLevelImporter.LevelDocument.normalize_json(source_document["parts"][int(index)])))
 		gunsaw_source_level["parts"] = preserved
-	status_text = "Editor loaded from Slot %d (%s)." % [current_save_slot, save_path]
+	status_text = "Editor loaded from %s (%s)." % [source_name, save_path]
 	queue_redraw()
 
 func save_slot_path(slot: int) -> String:
