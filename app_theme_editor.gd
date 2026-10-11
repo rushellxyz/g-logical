@@ -27,7 +27,7 @@ func _ready() -> void:
 	delete_button.pressed.connect(func(): delete_requested.emit())
 	name_row.add_child(delete_button)
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 260)
+	scroll.custom_minimum_size = Vector2(0, 220)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
 	var fields := GridContainer.new()

@@ -4,6 +4,7 @@ const GateProperties = preload("res://gate_properties.gd")
 const WireGeometry = preload("res://wire_geometry.gd")
 
 var dirty := true
+var revision := 0
 var orthogonal := false
 var gate_bounds: Array[Rect2] = []
 var wire_bounds: Array[Rect2] = []
@@ -29,6 +30,7 @@ func update(gates: Array, wires: Array, node_size: Vector2) -> void:
 	if not dirty and gate_bounds.size() == gates.size() and wire_bounds.size() == wires.size():
 		return
 	stop_routing()
+	revision += 1
 	moving = false
 	gate_wires.clear()
 	gate_wires.resize(gates.size())
@@ -115,6 +117,8 @@ func update_moved_gates(gates: Array, wires: Array, indices: Array, node_size: V
 		if orthogonal:
 			wire_core_segments[index] = WireGeometry.rendered_segments(path, true)
 			wire_border_segments[index] = WireGeometry.rendered_segments(path, false)
+	if not affected.is_empty():
+		revision += 1
 
 func finish_moving() -> void:
 	if moving and orthogonal:
@@ -203,6 +207,8 @@ func advance_routing(budget_usec := 3000) -> bool:
 			break
 	if routing_index == routing_wires.size() and routing_thread != null and not routing_thread.is_alive():
 		stop_routing()
+	if changed:
+		revision += 1
 	return changed
 
 func route(start: Vector2, end: Vector2, source: Rect2, target: Rect2, _output_port: int, _input_port: int) -> PackedVector2Array:

@@ -15,6 +15,7 @@ const EXPORT_ICON = preload("res://icons/export.svg")
 const SETTINGS_ICON = preload("res://icons/settings.svg")
 const AppPalette = preload("res://app_palette.gd")
 const AppSettings = preload("res://app_settings.gd")
+const WireRenderer = preload("res://wire_renderer.gd")
 
 const TOPBAR_HEIGHT := 72.0
 const KEYBOARD_PAN_SPEED := 1400.0
@@ -138,6 +139,7 @@ var drawn_tick := -1
 var drawn_tps := -1.0
 var drawn_toolbar_height := -1.0
 var canvas_geometry := CanvasGeometry.new()
+var wire_renderer := WireRenderer.new()
 var simulation := LogicSimulator.new()
 var compiled_custom_components := false
 var compiled_board_gate_count := -1
@@ -561,10 +563,16 @@ func _draw() -> void:
 			continue
 		_draw_gate(gates[i], i)
 	if not physical_mode and wires_visible:
-		var wire_view := visible_canvas.grow(9.0 / canvas_zoom)
+		var wire_view := visible_canvas.grow(maxf(6.0, 9.0 / canvas_zoom))
+		if canvas_geometry.orthogonal:
+			wire_renderer.prepare(canvas_geometry.revision, wire_view)
 		for i in range(wires.size()):
 			if canvas_geometry.wire_bounds[i].intersects(wire_view, true):
 				_draw_wire(wires[i], i == selected_wire, i)
+		if canvas_geometry.orthogonal and canvas_zoom >= 0.5:
+			draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
+			wire_renderer.draw_signals(self, AppPalette.color("#39ff14"))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if selecting:
 		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), AppPalette.color("#6ca9e8", 0.18), true)
 		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), AppPalette.color("#8bc5f5"), false, 1.0)
@@ -583,7 +591,7 @@ func _draw() -> void:
 		routing_label += " %d/%d" % [canvas_geometry.routing_index, canvas_geometry.routing_wires.size()]
 	if canvas_geometry.orthogonal and canvas_geometry.routing_failures > 0:
 		routing_label += "; unrouted: %d" % canvas_geometry.routing_failures
-	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Grid [-/+]: %d  |  Lines [L]: %s  |  Routing [Ctrl+L]: %s  |  %s" % [tick, ticks_per_second, int(grid_step), "ON" if wires_visible else "OFF", routing_label, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, AppPalette.color("#aab8cb"))
+	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f%s  |  Grid [-/+]: %d  |  Lines [L]: %s  |  Routing [Ctrl+L]: %s  |  %s" % [tick, ticks_per_second, app_settings.fps_status_text(), int(grid_step), "ON" if wires_visible else "OFF", routing_label, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, AppPalette.color("#aab8cb"))
 
 func build_toolbar() -> void:
 	var layer := CanvasLayer.new()
@@ -1058,9 +1066,10 @@ func _draw_wire(wire: Dictionary, selected: bool, wire_index: int) -> void:
 		wire_color = AppPalette.color("#a47438") if high else AppPalette.color("#895b29")
 		if selected:
 			wire_color = AppPalette.color("#f28b82")
-		draw_circuit_wire(canvas_geometry.wire_paths[wire_index], wire_color, 8.0, canvas_geometry.wire_core_segments[wire_index], canvas_geometry.wire_border_segments[wire_index])
+		var border := AppPalette.color("#6d5028") if high and not selected else (AppPalette.color("#59401f") if not selected else wire_color.darkened(0.25))
+		wire_renderer.draw_wire(self, wire_index, canvas_geometry, wire_color, border, canvas_zoom >= 0.5)
 		if high and canvas_zoom >= 0.5:
-			draw_wire_signals(canvas_geometry.wire_paths[wire_index], canvas_geometry.wire_distances[wire_index])
+			wire_renderer.append_signals(wire_index, canvas_geometry, tick * LogicSimulator.STEP_SECONDS)
 	else:
 		draw_line(a, b, wire_color, 5 if selected else (4 if high else 2))
 		draw_circle(a, 4, wire_color)
@@ -1084,23 +1093,6 @@ func draw_circuit_wire(path: PackedVector2Array, color: Color, width: float, cor
 	if canvas_zoom >= 0.5:
 		draw_circle(path[0], width * 0.5, color)
 		draw_circle(path[-1], width * 0.5, color)
-
-func draw_wire_signals(path: PackedVector2Array, distances: PackedFloat32Array) -> void:
-	var length: float = distances[-1]
-	if length <= 0:
-		return
-	var count := maxi(1, floori(length / 140.0))
-	var spacing := length / count
-	var offset := fmod(tick * LogicSimulator.STEP_SECONDS * 250.0, spacing)
-	var segment := 1
-	for i in range(count):
-		var distance := offset + spacing * i
-		while segment < distances.size() - 1 and distances[segment] < distance:
-			segment += 1
-		var span: float = distances[segment] - distances[segment - 1]
-		if span > 0:
-			var point := path[segment - 1].lerp(path[segment], (distance - distances[segment - 1]) / span)
-			draw_circle(point, 3.0, AppPalette.color("#39ff14"))
 
 func port_position(gate_id: int, input: bool, port: int) -> Vector2:
 	var gate: Dictionary = gates[gate_id]

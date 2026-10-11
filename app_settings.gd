@@ -2,12 +2,16 @@ extends Node
 
 const AppPalette = preload("res://app_palette.gd")
 const ThemeEditor = preload("res://app_theme_editor.gd")
+const PerformanceMonitor = preload("res://performance_monitor.gd")
 const SETTINGS_PATH := "user://g-logical-settings.cfg"
 
 signal controls_changed
 signal save_failed(message: String)
 
 var touchpad_mode := false
+var show_fps := false
+var vsync_enabled := true
+var performance_monitor: PerformanceMonitor
 var dialog: AcceptDialog
 var choices: OptionButton
 var theme_editor: ThemeEditor
@@ -18,15 +22,24 @@ var settings_path := SETTINGS_PATH
 
 func _ready() -> void:
 	load_settings()
+	performance_monitor = PerformanceMonitor.new()
+	add_child(performance_monitor)
+	performance_monitor.fps_changed.connect(func(_fps: int): get_parent().queue_redraw())
+	performance_monitor.set_enabled(show_fps)
+	apply_vsync()
 	build_dialog()
 
 func load_settings() -> void:
+	show_fps = false
+	vsync_enabled = true
 	AppPalette.custom_themes.clear()
 	AppPalette.selected = 0
 	var settings := ConfigFile.new()
 	if settings.load(settings_path) != OK:
 		return
 	touchpad_mode = bool(settings.get_value("controls", "touchpad_mode", false))
+	show_fps = bool(settings.get_value("display", "show_fps", false))
+	vsync_enabled = bool(settings.get_value("display", "vsync", true))
 	var saved_custom = settings.get_value("appearance", "custom_themes", [])
 	if saved_custom is Array:
 		for entry in saved_custom:
@@ -46,6 +59,8 @@ func load_settings() -> void:
 func save() -> void:
 	var settings := ConfigFile.new()
 	settings.set_value("controls", "touchpad_mode", touchpad_mode)
+	settings.set_value("display", "show_fps", show_fps)
+	settings.set_value("display", "vsync", vsync_enabled)
 	settings.set_value("appearance", "theme", AppPalette.selected)
 	settings.set_value("appearance", "theme_id", AppPalette.theme_id())
 	settings.set_value("appearance", "custom_themes", AppPalette.custom_themes)
@@ -77,6 +92,23 @@ func build_dialog() -> void:
 		save()
 	)
 	content.add_child(toggle)
+	var display_heading := Label.new()
+	display_heading.text = "Display"
+	display_heading.add_theme_font_size_override("font_size", 18)
+	content.add_child(display_heading)
+	var display_row := HBoxContainer.new()
+	display_row.add_theme_constant_override("separation", 20)
+	content.add_child(display_row)
+	var fps_toggle := CheckButton.new()
+	fps_toggle.text = "Show FPS"
+	fps_toggle.button_pressed = show_fps
+	fps_toggle.toggled.connect(set_show_fps)
+	display_row.add_child(fps_toggle)
+	var vsync_toggle := CheckButton.new()
+	vsync_toggle.text = "VSync"
+	vsync_toggle.button_pressed = vsync_enabled
+	vsync_toggle.toggled.connect(set_vsync_enabled)
+	display_row.add_child(vsync_toggle)
 	var appearance := Label.new()
 	appearance.text = "Appearance"
 	appearance.add_theme_font_size_override("font_size", 18)
@@ -107,6 +139,26 @@ func build_dialog() -> void:
 	delete_confirmation.confirmed.connect(delete_theme)
 	dialog.add_child(delete_confirmation)
 	refresh_choices()
+
+func set_show_fps(enabled: bool) -> void:
+	show_fps = enabled
+	performance_monitor.set_enabled(enabled)
+	get_parent().queue_redraw()
+	save()
+
+func fps_status_text() -> String:
+	return "  |  FPS %d" % performance_monitor.fps if show_fps else ""
+
+func set_vsync_enabled(enabled: bool) -> void:
+	vsync_enabled = enabled
+	apply_vsync()
+	save()
+
+func apply_vsync() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var mode := DisplayServer.VSYNC_ENABLED if vsync_enabled else DisplayServer.VSYNC_DISABLED
+	DisplayServer.window_set_vsync_mode(mode, get_window().get_window_id())
 
 func refresh_choices() -> void:
 	choices.clear()
