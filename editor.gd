@@ -12,8 +12,14 @@ const SAVE_ICON = preload("res://icons/save.svg")
 const LOAD_ICON = preload("res://icons/load.svg")
 const IMPORT_ICON = preload("res://icons/import.svg")
 const EXPORT_ICON = preload("res://icons/export.svg")
+const SETTINGS_ICON = preload("res://icons/settings.svg")
 
 const TOPBAR_HEIGHT := 72.0
+const KEYBOARD_PAN_SPEED := 1400.0
+const KEYBOARD_PAN_RESPONSE := 12.0
+const TOUCHPAD_PAN_SPEED := 32.0
+const TOUCHPAD_SCROLL_SPEED := 48.0
+const SETTINGS_PATH := "user://g-logical-settings.cfg"
 const GRID_SIZE := 32.0
 const NODE_SIZE := Vector2(170, 92)
 const PHYSICAL_UNIT_SIZE := 32.0
@@ -67,6 +73,9 @@ var simulation_accumulator := 0.0
 var next_id := 1
 var canvas_offset := Vector2.ZERO
 var canvas_zoom := 1.0
+var keyboard_pan_velocity := Vector2.ZERO
+var touchpad_mode := false
+var settings_dialog: AcceptDialog
 var panning := false
 var pan_start := Vector2.ZERO
 var pan_offset_start := Vector2.ZERO
@@ -131,6 +140,8 @@ var gate_properties: GateProperties
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
+	load_app_settings()
+	build_settings_dialog()
 	save_slot_menu = PopupMenu.new()
 	save_slot_menu.id_pressed.connect(_on_save_slot_menu_id_pressed)
 	add_child(save_slot_menu)
@@ -171,6 +182,39 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	canvas_geometry.stop_routing()
+
+func load_app_settings() -> void:
+	var settings := ConfigFile.new()
+	if settings.load(SETTINGS_PATH) == OK:
+		touchpad_mode = bool(settings.get_value("controls", "touchpad_mode", false))
+
+func set_touchpad_mode(enabled: bool) -> void:
+	touchpad_mode = enabled
+	keyboard_pan_velocity = Vector2.ZERO
+	var settings := ConfigFile.new()
+	settings.set_value("controls", "touchpad_mode", touchpad_mode)
+	var error := settings.save(SETTINGS_PATH)
+	if error != OK:
+		status_text = "Could not save app settings: %s." % error_string(error)
+		queue_redraw()
+
+func build_settings_dialog() -> void:
+	settings_dialog = AcceptDialog.new()
+	settings_dialog.title = "Settings"
+	settings_dialog.ok_button_text = "Close"
+	add_child(settings_dialog)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	settings_dialog.add_child(content)
+	var heading := Label.new()
+	heading.text = "Controls"
+	heading.add_theme_font_size_override("font_size", 18)
+	content.add_child(heading)
+	var toggle := CheckButton.new()
+	toggle.text = "Touchpad mode"
+	toggle.button_pressed = touchpad_mode
+	toggle.toggled.connect(set_touchpad_mode)
+	content.add_child(toggle)
 
 func foundry_directory() -> String:
 	var directory := DirAccess.open("user://")
@@ -442,6 +486,7 @@ func apply_port_label() -> void:
 	queue_redraw()
 
 func _process(_delta: float) -> void:
+	update_keyboard_pan(_delta)
 	if canvas_geometry.advance_routing():
 		queue_redraw()
 	toolbar_height = toolbar_panel.size.y
@@ -464,6 +509,37 @@ func _process(_delta: float) -> void:
 		simulation_accumulator = 0.0
 	gate_properties.update_editor(gates, canvas_transform_origin(), canvas_zoom, toolbar_height, physical_mode or foundry_mode)
 	if drawn_status != status_text or drawn_tick != tick or drawn_tps != ticks_per_second or drawn_toolbar_height != toolbar_height:
+		queue_redraw()
+
+func update_keyboard_pan(delta: float) -> void:
+	# Keep navigation out of text editing, shortcuts and mouse gestures.
+	if not get_window().has_focus() or get_viewport().gui_get_focus_owner() != null or panning or dragging_gate >= 0 or resizing_gate >= 0 or selecting or connecting_wire:
+		keyboard_pan_velocity = Vector2.ZERO
+		return
+	for window in get_viewport().get_embedded_subwindows():
+		if window.visible:
+			keyboard_pan_velocity = Vector2.ZERO
+			return
+	if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META) or Input.is_key_pressed(KEY_ALT):
+		keyboard_pan_velocity = Vector2.ZERO
+		return
+	if selected_gate >= 0 and selected_gate < gates.size() and gates[selected_gate]["type_id"] == "EDITOR/COMMENT":
+		keyboard_pan_velocity = Vector2.ZERO
+		return
+	var direction := Vector2(
+		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
+		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
+	).normalized()
+	# The canvas moves opposite to the camera; speed is in screen pixels/second.
+	var target_velocity := -direction * KEYBOARD_PAN_SPEED
+	var blend := 1.0 - exp(-KEYBOARD_PAN_RESPONSE * delta)
+	var movement := target_velocity * delta + (keyboard_pan_velocity - target_velocity) * blend / KEYBOARD_PAN_RESPONSE
+	keyboard_pan_velocity = keyboard_pan_velocity.lerp(target_velocity, blend)
+	if target_velocity == Vector2.ZERO and keyboard_pan_velocity.length_squared() < 0.01:
+		keyboard_pan_velocity = Vector2.ZERO
+	if not movement.is_zero_approx():
+		canvas_offset += movement
+		clamp_canvas_offset()
 		queue_redraw()
 
 func _draw() -> void:
@@ -566,6 +642,7 @@ func build_toolbar() -> void:
 	tools.add_theme_constant_override("separation", 6)
 	tools.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(tools)
+	toolbar_icon_button(tools, SETTINGS_ICON, "Settings", func(): settings_dialog.popup_centered())
 	editor_mode_button = toolbar_button(tools, "EDITOR", func(): request_mode_switch("editor"))
 	physical_button = toolbar_button(tools, "PHYSICAL", func(): request_mode_switch("physical"))
 	foundry_mode_button = toolbar_button(tools, "FOUNDRY", func(): request_mode_switch("foundry"))
@@ -1076,6 +1153,22 @@ func _on_lamp_color_changed(color: Color) -> void:
 	queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventPanGesture:
+		if event.position.y < toolbar_height or not event.delta.is_finite():
+			return
+		keyboard_pan_velocity = Vector2.ZERO
+		canvas_offset -= event.delta * TOUCHPAD_PAN_SPEED
+		clamp_canvas_offset()
+		queue_redraw()
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventMagnifyGesture:
+		if event.position.y < toolbar_height:
+			return
+		keyboard_pan_velocity = Vector2.ZERO
+		zoom_canvas_at(event.position, event.factor)
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed:
 		if event.ctrl_pressed and event.alt_pressed and event.shift_pressed and event.keycode == KEY_O:
 			open_user_folder()
@@ -1179,15 +1272,30 @@ func _unhandled_input(event: InputEvent) -> void:
 			pan_offset_start = canvas_offset
 		else:
 			panning = false
-	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
-		var zoom_anchor := screen_to_canvas(event.position)
-		var zoom_factor := 1.1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.1
-		var new_zoom: float = canvas_zoom * zoom_factor
-		if new_zoom <= 0.0 or not is_finite(new_zoom):
+	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
+		if touchpad_mode:
+			if event.position.y < toolbar_height or not is_finite(event.factor):
+				return
+			keyboard_pan_velocity = Vector2.ZERO
+			if event.ctrl_pressed:
+				if event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+					var direction := 1.0 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1.0
+					zoom_canvas_at(event.position, pow(1.1, direction * event.factor))
+			else:
+				var movement := Vector2.ZERO
+				match event.button_index:
+					MOUSE_BUTTON_WHEEL_UP: movement.y = 1.0
+					MOUSE_BUTTON_WHEEL_DOWN: movement.y = -1.0
+					MOUSE_BUTTON_WHEEL_LEFT: movement.x = 1.0
+					MOUSE_BUTTON_WHEEL_RIGHT: movement.x = -1.0
+				canvas_offset += movement * TOUCHPAD_SCROLL_SPEED * event.factor
+				clamp_canvas_offset()
+				queue_redraw()
+			get_viewport().set_input_as_handled()
 			return
-		canvas_zoom = new_zoom
-		canvas_offset = event.position - zoom_anchor * canvas_zoom - Vector2(0, TOPBAR_HEIGHT * (1.0 - canvas_zoom))
-		queue_redraw()
+		if event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+			var zoom_factor := 1.1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.1
+			zoom_canvas_at(event.position, zoom_factor)
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		handle_delete_press(event.position)
 	if event is InputEventMouseMotion and dragging_gate >= 0:
@@ -1232,6 +1340,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		queue_redraw()
 	if event is InputEventMouseMotion and pending_output["gate"] >= 0:
 		queue_redraw()
+
+func zoom_canvas_at(position: Vector2, factor: float) -> void:
+	var new_zoom := canvas_zoom * factor
+	if new_zoom <= 0.0 or not is_finite(new_zoom):
+		return
+	var zoom_anchor := screen_to_canvas(position)
+	canvas_zoom = new_zoom
+	canvas_offset = position - zoom_anchor * canvas_zoom - Vector2(0, TOPBAR_HEIGHT * (1.0 - canvas_zoom))
+	queue_redraw()
 
 func setup_import_dialog() -> void:
 	import_menu = PopupMenu.new()
