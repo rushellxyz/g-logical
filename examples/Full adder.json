@@ -1,0 +1,2227 @@
+{
+	"canvas_offset": [
+		726.019775390625,
+		317.868408203125
+	],
+	"format": 1,
+	"gates": [
+		{
+			"export": true,
+			"id": 1.0,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 480.0,
+				"y": 608.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 2.0,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 480.0,
+				"y": 480.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 4.0,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 480.0,
+				"y": 384.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 5.0,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 800.0,
+				"y": 608.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 6.0,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 800.0,
+				"y": 480.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 7.0,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 800.0,
+				"y": 384.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 8,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1120.0,
+				"y": 608.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 9,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 1120.0,
+				"y": 480.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 10,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 1120.0,
+				"y": 384.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 11,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1440.0,
+				"y": 608.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 12,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 1440.0,
+				"y": 480.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 13,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 1440.0,
+				"y": 384.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 14,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1824.0,
+				"y": 608.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 15,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 1824.0,
+				"y": 480.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 16,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ff5100",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 1824.0,
+				"y": 384.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 17,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1952.0,
+				"y": 928.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XOR"
+		},
+		{
+			"export": true,
+			"id": 18,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1952.0,
+				"y": 1120.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 19,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XNOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2208.0,
+				"y": 960.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XNOR"
+		},
+		{
+			"export": true,
+			"id": 20,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2208.0,
+				"y": 1056.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 21,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "OR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2464.0,
+				"y": 1120.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/OR"
+		},
+		{
+			"export": true,
+			"id": 22,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "EDGE",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 4448.0,
+				"y": 448.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/EDGE"
+		},
+		{
+			"export": true,
+			"id": 23,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "005dff",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 4448.0,
+				"y": 352.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 24,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1984.0,
+				"y": 1312.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XOR"
+		},
+		{
+			"export": true,
+			"id": 25,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1984.0,
+				"y": 1504.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 26,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XNOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2240.0,
+				"y": 1344.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XNOR"
+		},
+		{
+			"export": true,
+			"id": 27,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2240.0,
+				"y": 1440.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 28,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "OR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2496.0,
+				"y": 1504.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/OR"
+		},
+		{
+			"export": true,
+			"id": 29,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "EDGE",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 4128.0,
+				"y": 448.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/EDGE"
+		},
+		{
+			"export": true,
+			"id": 30,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "005dff",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 4128.0,
+				"y": 352.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 31,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 480.0,
+				"y": 1600.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 32,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 480.0,
+				"y": 1472.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 33,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 480.0,
+				"y": 1376.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 34,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 800.0,
+				"y": 1600.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 35,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 800.0,
+				"y": 1472.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 36,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 800.0,
+				"y": 1376.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 37,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1120.0,
+				"y": 1600.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 38,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 1120.0,
+				"y": 1472.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 39,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 1120.0,
+				"y": 1376.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 40,
+			"input_names": [],
+			"inputs": [],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "BUTTON",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 1440.0,
+				"y": 1600.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/BUTTON"
+		},
+		{
+			"export": true,
+			"id": 41,
+			"input_names": [
+				"T",
+				"CLK"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "T FLIP-FLOP",
+			"output_names": [
+				"Q",
+				"/Q"
+			],
+			"outputs": [
+				false,
+				false
+			],
+			"position": {
+				"x": 1440.0,
+				"y": 1472.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/TFF"
+		},
+		{
+			"export": true,
+			"id": 42,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "ffa200",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 1440.0,
+				"y": 1376.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 43,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2016.0,
+				"y": 1696.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XOR"
+		},
+		{
+			"export": true,
+			"id": 44,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2016.0,
+				"y": 1888.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 45,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XNOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2272.0,
+				"y": 1728.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XNOR"
+		},
+		{
+			"export": true,
+			"id": 46,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2272.0,
+				"y": 1824.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 47,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "OR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2528.0,
+				"y": 1888.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/OR"
+		},
+		{
+			"export": true,
+			"id": 48,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2048.0,
+				"y": 2080.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XOR"
+		},
+		{
+			"export": true,
+			"id": 49,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2048.0,
+				"y": 2272.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 50,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "XNOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2304.0,
+				"y": 2112.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/XNOR"
+		},
+		{
+			"export": true,
+			"id": 51,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "AND",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2304.0,
+				"y": 2208.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/AND"
+		},
+		{
+			"export": true,
+			"id": 52,
+			"input_names": [
+				"A",
+				"B"
+			],
+			"inputs": [
+				false,
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "NOR",
+			"output_names": [
+				"OUT"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 2560.0,
+				"y": 2272.0
+			},
+			"previous_inputs": [
+				false,
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/NOR"
+		},
+		{
+			"export": true,
+			"id": 53,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "EDGE",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 3808.0,
+				"y": 448.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/EDGE"
+		},
+		{
+			"export": true,
+			"id": 54,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "005dff",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 3808.0,
+				"y": 352.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 55,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "EDGE",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 3488.0,
+				"y": 448.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/EDGE"
+		},
+		{
+			"export": true,
+			"id": 56,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "005dff",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 3488.0,
+				"y": 352.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 57,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "FFD23F",
+			"memory": false,
+			"name": "EDGE",
+			"output_names": [
+				"PULSE"
+			],
+			"outputs": [
+				false
+			],
+			"position": {
+				"x": 3104.0,
+				"y": 448.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/Logic/EDGE"
+		},
+		{
+			"export": true,
+			"id": 58,
+			"input_names": [
+				"IN"
+			],
+			"inputs": [
+				false
+			],
+			"lamp_color": "00baff",
+			"memory": false,
+			"name": "LAMP",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 3104.0,
+				"y": 352.0
+			},
+			"previous_inputs": [
+				false
+			],
+			"pulse_pending": false,
+			"state": true,
+			"text": "Comment",
+			"type_id": "MP/IO/LAMP"
+		},
+		{
+			"export": true,
+			"id": 59,
+			"input_names": [],
+			"inputs": [],
+			"memory": false,
+			"name": "WHITE TILE",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": 256.0,
+				"y": 1120.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"size": {
+				"x": 4448.0,
+				"y": 192.0
+			},
+			"state": true,
+			"text": "",
+			"type_id": "EDITOR/WHITETILE"
+		},
+		{
+			"export": true,
+			"id": 60,
+			"input_names": [],
+			"inputs": [],
+			"memory": false,
+			"name": "WHITE TILE",
+			"output_names": [],
+			"outputs": [],
+			"position": {
+				"x": -320.0,
+				"y": 2112.0
+			},
+			"previous_inputs": [],
+			"pulse_pending": false,
+			"size": {
+				"x": 5056.0,
+				"y": 256.0
+			},
+			"state": true,
+			"text": "",
+			"type_id": "EDITOR/WHITETILE"
+		}
+	],
+	"gunsaw_source_level": {},
+	"next_id": 61,
+	"tick": 0,
+	"wires": [
+		{
+			"from_gate": 0.0,
+			"from_port": 0,
+			"to_gate": 1.0,
+			"to_port": 1
+		},
+		{
+			"from_gate": 0.0,
+			"from_port": 0,
+			"to_gate": 1.0,
+			"to_port": 0
+		},
+		{
+			"from_gate": 0.0,
+			"from_port": 0,
+			"to_gate": 2.0,
+			"to_port": 0
+		},
+		{
+			"from_gate": 3.0,
+			"from_port": 0,
+			"to_gate": 4.0,
+			"to_port": 1
+		},
+		{
+			"from_gate": 3.0,
+			"from_port": 0,
+			"to_gate": 4.0,
+			"to_port": 0
+		},
+		{
+			"from_gate": 3.0,
+			"from_port": 0,
+			"to_gate": 5.0,
+			"to_port": 0
+		},
+		{
+			"from_gate": 6,
+			"from_port": 0,
+			"to_gate": 7,
+			"to_port": 1
+		},
+		{
+			"from_gate": 6,
+			"from_port": 0,
+			"to_gate": 7,
+			"to_port": 0
+		},
+		{
+			"from_gate": 6,
+			"from_port": 0,
+			"to_gate": 8,
+			"to_port": 0
+		},
+		{
+			"from_gate": 9,
+			"from_port": 0,
+			"to_gate": 10,
+			"to_port": 1
+		},
+		{
+			"from_gate": 9,
+			"from_port": 0,
+			"to_gate": 10,
+			"to_port": 0
+		},
+		{
+			"from_gate": 9,
+			"from_port": 0,
+			"to_gate": 11,
+			"to_port": 0
+		},
+		{
+			"from_gate": 12,
+			"from_port": 0,
+			"to_gate": 13,
+			"to_port": 1
+		},
+		{
+			"from_gate": 12,
+			"from_port": 0,
+			"to_gate": 13,
+			"to_port": 0
+		},
+		{
+			"from_gate": 12,
+			"from_port": 0,
+			"to_gate": 14,
+			"to_port": 0
+		},
+		{
+			"from_gate": 15,
+			"from_port": 0,
+			"to_gate": 17,
+			"to_port": 0
+		},
+		{
+			"from_gate": 13,
+			"from_port": 1,
+			"to_gate": 17,
+			"to_port": 1
+		},
+		{
+			"from_gate": 13,
+			"from_port": 1,
+			"to_gate": 18,
+			"to_port": 1
+		},
+		{
+			"from_gate": 18,
+			"from_port": 0,
+			"to_gate": 19,
+			"to_port": 0
+		},
+		{
+			"from_gate": 15,
+			"from_port": 0,
+			"to_gate": 18,
+			"to_port": 0
+		},
+		{
+			"from_gate": 16,
+			"from_port": 0,
+			"to_gate": 19,
+			"to_port": 1
+		},
+		{
+			"from_gate": 17,
+			"from_port": 0,
+			"to_gate": 20,
+			"to_port": 0
+		},
+		{
+			"from_gate": 20,
+			"from_port": 0,
+			"to_gate": 21,
+			"to_port": 0
+		},
+		{
+			"from_gate": 22,
+			"from_port": 0,
+			"to_gate": 24,
+			"to_port": 0
+		},
+		{
+			"from_gate": 25,
+			"from_port": 0,
+			"to_gate": 26,
+			"to_port": 0
+		},
+		{
+			"from_gate": 22,
+			"from_port": 0,
+			"to_gate": 25,
+			"to_port": 0
+		},
+		{
+			"from_gate": 23,
+			"from_port": 0,
+			"to_gate": 26,
+			"to_port": 1
+		},
+		{
+			"from_gate": 19,
+			"from_port": 0,
+			"to_gate": 24,
+			"to_port": 1
+		},
+		{
+			"from_gate": 19,
+			"from_port": 0,
+			"to_gate": 25,
+			"to_port": 1
+		},
+		{
+			"from_gate": 27,
+			"from_port": 0,
+			"to_gate": 28,
+			"to_port": 0
+		},
+		{
+			"from_gate": 10,
+			"from_port": 1,
+			"to_gate": 15,
+			"to_port": 0
+		},
+		{
+			"from_gate": 10,
+			"from_port": 1,
+			"to_gate": 16,
+			"to_port": 0
+		},
+		{
+			"from_gate": 29,
+			"from_port": 0,
+			"to_gate": 30,
+			"to_port": 1
+		},
+		{
+			"from_gate": 29,
+			"from_port": 0,
+			"to_gate": 30,
+			"to_port": 0
+		},
+		{
+			"from_gate": 29,
+			"from_port": 0,
+			"to_gate": 31,
+			"to_port": 0
+		},
+		{
+			"from_gate": 32,
+			"from_port": 0,
+			"to_gate": 33,
+			"to_port": 1
+		},
+		{
+			"from_gate": 32,
+			"from_port": 0,
+			"to_gate": 33,
+			"to_port": 0
+		},
+		{
+			"from_gate": 32,
+			"from_port": 0,
+			"to_gate": 34,
+			"to_port": 0
+		},
+		{
+			"from_gate": 35,
+			"from_port": 0,
+			"to_gate": 36,
+			"to_port": 1
+		},
+		{
+			"from_gate": 35,
+			"from_port": 0,
+			"to_gate": 36,
+			"to_port": 0
+		},
+		{
+			"from_gate": 35,
+			"from_port": 0,
+			"to_gate": 37,
+			"to_port": 0
+		},
+		{
+			"from_gate": 38,
+			"from_port": 0,
+			"to_gate": 39,
+			"to_port": 1
+		},
+		{
+			"from_gate": 38,
+			"from_port": 0,
+			"to_gate": 39,
+			"to_port": 0
+		},
+		{
+			"from_gate": 38,
+			"from_port": 0,
+			"to_gate": 40,
+			"to_port": 0
+		},
+		{
+			"from_gate": 39,
+			"from_port": 1,
+			"to_gate": 15,
+			"to_port": 1
+		},
+		{
+			"from_gate": 39,
+			"from_port": 1,
+			"to_gate": 16,
+			"to_port": 1
+		},
+		{
+			"from_gate": 7,
+			"from_port": 1,
+			"to_gate": 22,
+			"to_port": 0
+		},
+		{
+			"from_gate": 7,
+			"from_port": 1,
+			"to_gate": 23,
+			"to_port": 0
+		},
+		{
+			"from_gate": 36,
+			"from_port": 1,
+			"to_gate": 22,
+			"to_port": 1
+		},
+		{
+			"from_gate": 36,
+			"from_port": 1,
+			"to_gate": 23,
+			"to_port": 1
+		},
+		{
+			"from_gate": 24,
+			"from_port": 0,
+			"to_gate": 27,
+			"to_port": 0
+		},
+		{
+			"from_gate": 41,
+			"from_port": 0,
+			"to_gate": 43,
+			"to_port": 0
+		},
+		{
+			"from_gate": 44,
+			"from_port": 0,
+			"to_gate": 45,
+			"to_port": 0
+		},
+		{
+			"from_gate": 41,
+			"from_port": 0,
+			"to_gate": 44,
+			"to_port": 0
+		},
+		{
+			"from_gate": 42,
+			"from_port": 0,
+			"to_gate": 45,
+			"to_port": 1
+		},
+		{
+			"from_gate": 46,
+			"from_port": 0,
+			"to_gate": 48,
+			"to_port": 0
+		},
+		{
+			"from_gate": 49,
+			"from_port": 0,
+			"to_gate": 50,
+			"to_port": 0
+		},
+		{
+			"from_gate": 46,
+			"from_port": 0,
+			"to_gate": 49,
+			"to_port": 0
+		},
+		{
+			"from_gate": 47,
+			"from_port": 0,
+			"to_gate": 50,
+			"to_port": 1
+		},
+		{
+			"from_gate": 45,
+			"from_port": 0,
+			"to_gate": 48,
+			"to_port": 1
+		},
+		{
+			"from_gate": 45,
+			"from_port": 0,
+			"to_gate": 49,
+			"to_port": 1
+		},
+		{
+			"from_gate": 26,
+			"from_port": 0,
+			"to_gate": 43,
+			"to_port": 1
+		},
+		{
+			"from_gate": 26,
+			"from_port": 0,
+			"to_gate": 44,
+			"to_port": 1
+		},
+		{
+			"from_gate": 51,
+			"from_port": 0,
+			"to_gate": 52,
+			"to_port": 0
+		},
+		{
+			"from_gate": 53,
+			"from_port": 0,
+			"to_gate": 54,
+			"to_port": 0
+		},
+		{
+			"from_gate": 43,
+			"from_port": 0,
+			"to_gate": 51,
+			"to_port": 0
+		},
+		{
+			"from_gate": 48,
+			"from_port": 0,
+			"to_gate": 53,
+			"to_port": 0
+		},
+		{
+			"from_gate": 4,
+			"from_port": 1,
+			"to_gate": 41,
+			"to_port": 0
+		},
+		{
+			"from_gate": 4,
+			"from_port": 1,
+			"to_gate": 42,
+			"to_port": 0
+		},
+		{
+			"from_gate": 33,
+			"from_port": 1,
+			"to_gate": 41,
+			"to_port": 1
+		},
+		{
+			"from_gate": 33,
+			"from_port": 1,
+			"to_gate": 42,
+			"to_port": 1
+		},
+		{
+			"from_gate": 1,
+			"from_port": 1,
+			"to_gate": 46,
+			"to_port": 0
+		},
+		{
+			"from_gate": 1,
+			"from_port": 1,
+			"to_gate": 47,
+			"to_port": 0
+		},
+		{
+			"from_gate": 30,
+			"from_port": 1,
+			"to_gate": 46,
+			"to_port": 1
+		},
+		{
+			"from_gate": 30,
+			"from_port": 1,
+			"to_gate": 47,
+			"to_port": 1
+		},
+		{
+			"from_gate": 55,
+			"from_port": 0,
+			"to_gate": 56,
+			"to_port": 0
+		},
+		{
+			"from_gate": 50,
+			"from_port": 0,
+			"to_gate": 55,
+			"to_port": 0
+		}
+	]
+}
