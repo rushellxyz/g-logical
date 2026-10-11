@@ -250,10 +250,22 @@ func route(start: Vector2, end: Vector2, source: Rect2, target: Rect2, retry := 
 	_target_obstacle = target.grow(CLEARANCE)
 	var exit := start + Vector2(minf(32 + departures.get(start, 0) * 16, lead_limit), 0)
 	var entry := end - Vector2(minf(32 + arrivals.get(end, 0) * 16, lead_limit), 0)
-	while exit.x > start.x + base_lead and (blocker(start + Vector2(base_lead, 0), exit) >= 0 or wire_blocker(start + Vector2(base_lead, 0), exit) >= 0):
-		exit.x = maxf(start.x + base_lead, exit.x - 16)
-	while entry.x < end.x - base_lead and (blocker(entry, end - Vector2(base_lead, 0)) >= 0 or wire_blocker(entry, end - Vector2(base_lead, 0)) >= 0):
-		entry.x = minf(end.x - base_lead, entry.x + 16)
+	var minimum_exit := start + Vector2(base_lead, 0)
+	var maximum_entry := end - Vector2(base_lead, 0)
+	while exit.x > minimum_exit.x and (blocker(minimum_exit, exit) >= 0 or wire_blocker(minimum_exit, exit) >= 0):
+		if cancelled():
+			return PackedVector2Array()
+		var previous_x := exit.x
+		exit.x = maxf(minimum_exit.x, exit.x - 16)
+		if exit.x >= previous_x:
+			break
+	while entry.x < maximum_entry.x and (blocker(entry, maximum_entry) >= 0 or wire_blocker(entry, maximum_entry) >= 0):
+		if cancelled():
+			return PackedVector2Array()
+		var previous_x := entry.x
+		entry.x = minf(maximum_entry.x, entry.x + 16)
+		if entry.x <= previous_x:
+			break
 	if retry > 0:
 		var offsets := [Vector2(16, -16), Vector2(16, 16), Vector2(24, -24), Vector2(24, 24)]
 		if retry <= 4:

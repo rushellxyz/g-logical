@@ -1160,6 +1160,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed:
+		if event.keycode in [KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN] and not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
+			if get_viewport().gui_get_focus_owner() != null or dragging_gate >= 0 or resizing_gate >= 0 or selecting or connecting_wire or panning:
+				return
+			for window in get_viewport().get_embedded_subwindows():
+				if window.visible:
+					return
+			var direction := Vector2.ZERO
+			match event.keycode:
+				KEY_LEFT: direction.x = -1.0
+				KEY_RIGHT: direction.x = 1.0
+				KEY_UP: direction.y = -1.0
+				KEY_DOWN: direction.y = 1.0
+			move_selection_by_grid(direction)
+			get_viewport().set_input_as_handled()
+			return
 		if event.ctrl_pressed and event.alt_pressed and event.shift_pressed and event.keycode == KEY_O:
 			open_user_folder()
 			return
@@ -2485,6 +2500,25 @@ func push_undo_snapshot(snapshot: Dictionary, invalidate: bool = true) -> void:
 	undo_history.append(snapshot.duplicate())
 	if undo_history.size() > MAX_UNDO_STEPS:
 		undo_history.pop_front()
+
+func move_selection_by_grid(direction: Vector2) -> void:
+	var indices: Array[int] = []
+	for index in selected_gates:
+		if index >= 0 and index < gates.size() and index not in indices:
+			indices.append(index)
+	if indices.is_empty() and selected_gate >= 0 and selected_gate < gates.size():
+		indices.append(selected_gate)
+	if indices.is_empty() or direction == Vector2.ZERO:
+		return
+	var transforms: Array = []
+	for index in indices:
+		transforms.append({"index": index, "position": gates[index]["position"]})
+	push_undo_snapshot({"gate_transforms": transforms}, false)
+	for index in indices:
+		gates[index]["position"] += direction * grid_step
+	canvas_geometry.update_moved_gates(gates, wires, indices, NODE_SIZE)
+	canvas_geometry.finish_moving()
+	queue_redraw()
 
 func begin_drag_undo() -> void:
 	var transforms: Array = []
