@@ -16,11 +16,15 @@ var active_target := Vector2(INF, INF)
 var cancel_check: Callable
 var deadline := 0
 var board_bounds := Rect2()
+var _port_clearance := CLEARANCE
+var _source_obstacle := Rect2()
+var _target_obstacle := Rect2()
 
 func cancelled() -> bool:
 	return (deadline > 0 and Time.get_ticks_usec() >= deadline) or (cancel_check.is_valid() and cancel_check.call())
 
 func configure(bounds: Array[Rect2]) -> void:
+	_port_clearance = CLEARANCE
 	obstacles.clear()
 	buckets.clear()
 	tracks.clear()
@@ -75,7 +79,10 @@ func blocker(a: Vector2, b: Vector2) -> int:
 			next[axis] = (boundary - a[axis]) / delta[axis]
 	for i in range(absi(last.x - cell.x) + absi(last.y - cell.y) + 1):
 		for index: int in buckets.get(cell, []):
-			if intersection(a, b, obstacles[index]):
+			var rect := obstacles[index]
+			if _port_clearance < CLEARANCE and (rect == _source_obstacle or rect == _target_obstacle):
+				rect = rect.grow(_port_clearance - CLEARANCE)
+			if intersection(a, b, rect):
 				return index
 		if cell == last:
 			break
@@ -236,18 +243,23 @@ func route(start: Vector2, end: Vector2, source: Rect2, target: Rect2, retry := 
 		return PackedVector2Array()
 	active_source = start
 	active_target = end
-	var exit := start + Vector2(32 + departures.get(start, 0) * 16, 0)
-	var entry := end - Vector2(32 + arrivals.get(end, 0) * 16, 0)
-	while exit.x > start.x + 32 and (blocker(start + Vector2(32, 0), exit) >= 0 or wire_blocker(start + Vector2(32, 0), exit) >= 0):
-		exit.x -= 16
-	while entry.x < end.x - 32 and (blocker(entry, end - Vector2(32, 0)) >= 0 or wire_blocker(entry, end - Vector2(32, 0)) >= 0):
-		entry.x += 16
+	var lead_limit := (end.x - start.x) * 0.5 if end.x > start.x else INF
+	var base_lead := minf(32.0, lead_limit)
+	_port_clearance = minf(CLEARANCE, lead_limit)
+	_source_obstacle = source.grow(CLEARANCE)
+	_target_obstacle = target.grow(CLEARANCE)
+	var exit := start + Vector2(minf(32 + departures.get(start, 0) * 16, lead_limit), 0)
+	var entry := end - Vector2(minf(32 + arrivals.get(end, 0) * 16, lead_limit), 0)
+	while exit.x > start.x + base_lead and (blocker(start + Vector2(base_lead, 0), exit) >= 0 or wire_blocker(start + Vector2(base_lead, 0), exit) >= 0):
+		exit.x = maxf(start.x + base_lead, exit.x - 16)
+	while entry.x < end.x - base_lead and (blocker(entry, end - Vector2(base_lead, 0)) >= 0 or wire_blocker(entry, end - Vector2(base_lead, 0)) >= 0):
+		entry.x = minf(end.x - base_lead, entry.x + 16)
 	if retry > 0:
 		var offsets := [Vector2(16, -16), Vector2(16, 16), Vector2(24, -24), Vector2(24, 24)]
 		if retry <= 4:
-			entry = end + Vector2(-offsets[retry - 1].x, offsets[retry - 1].y)
+			entry = end + Vector2(-minf(offsets[retry - 1].x, lead_limit), offsets[retry - 1].y)
 		else:
-			exit = start + offsets[retry - 5]
+			exit = start + Vector2(minf(offsets[retry - 5].x, lead_limit), offsets[retry - 5].y)
 	var candidates: Array[PackedVector2Array] = [WireGeometry.direct_path(exit, entry)]
 	var minimum_length := 0.0
 	for i in range(candidates[0].size() - 1):

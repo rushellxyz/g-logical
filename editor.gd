@@ -15,6 +15,7 @@ const EXPORT_ICON = preload("res://icons/export.svg")
 const SETTINGS_ICON = preload("res://icons/settings.svg")
 const AppPalette = preload("res://app_palette.gd")
 const AppSettings = preload("res://app_settings.gd")
+const SessionRecovery = preload("res://session_recovery.gd")
 const WireRenderer = preload("res://wire_renderer.gd")
 
 const TOPBAR_HEIGHT := 72.0
@@ -80,6 +81,7 @@ var canvas_zoom := 1.0
 var grid_step := GRID_SIZE
 var keyboard_pan_velocity := Vector2.ZERO
 var app_settings := AppSettings.new()
+var session_recovery := SessionRecovery.new()
 var panning := false
 var pan_start := Vector2.ZERO
 var pan_offset_start := Vector2.ZERO
@@ -194,10 +196,18 @@ func _ready() -> void:
 	setup_import_dialog()
 	get_viewport().size_changed.connect(queue_redraw)
 	update_lamp_color_picker()
+	add_child(session_recovery)
+	session_recovery.save_failed.connect(func(message: String):
+		status_text = message
+		queue_redraw()
+	)
+	session_recovery.initialize(capture_session_state, restore_session_state)
 	app_settings.apply_theme()
 	queue_redraw()
 
 func _exit_tree() -> void:
+	session_recovery.save_now()
+	session_recovery.finish_writes()
 	canvas_geometry.stop_routing()
 
 func foundry_directory() -> String:
@@ -330,6 +340,7 @@ func load_foundry_component(document: Dictionary) -> void:
 	canvas_geometry.dirty = true
 	update_mode_toolbar()
 	rebuild_gate_toolbar()
+	session_recovery.mark_changed()
 	status_text = "Opened Foundry component '%s'." % str(document.get("name", "Unnamed"))
 	queue_redraw()
 
@@ -496,6 +507,9 @@ func _process(_delta: float) -> void:
 		queue_redraw()
 
 func update_keyboard_pan(delta: float) -> void:
+	if session_recovery.pending:
+		keyboard_pan_velocity = Vector2.ZERO
+		return
 	if not get_window().has_focus() or get_viewport().gui_get_focus_owner() != null or panning or dragging_gate >= 0 or resizing_gate >= 0 or selecting or connecting_wire:
 		keyboard_pan_velocity = Vector2.ZERO
 		return
@@ -812,6 +826,7 @@ func _confirm_mode_switch() -> void:
 	pending_editor_mode = ""
 
 func switch_mode(target_mode: String) -> void:
+	session_recovery.save_now()
 	running = false
 	gunsaw_source_level.clear()
 	physical_mode = target_mode == "physical"
@@ -1126,6 +1141,8 @@ func _on_lamp_color_changed(color: Color) -> void:
 	queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if session_recovery.pending:
+		return
 	if event is InputEventPanGesture:
 		if event.position.y < toolbar_height or not event.delta.is_finite():
 			return
@@ -2363,6 +2380,81 @@ func snap_position(pos: Vector2) -> Vector2:
 func clamp_canvas_offset() -> void:
 	return
 
+func capture_session_state() -> Dictionary:
+	var snapshot := create_undo_snapshot()
+	snapshot.merge({
+		"foundry_mode": foundry_mode,
+		"foundry_layout_mode": foundry_layout_mode,
+		"component_name": component_name_field.text,
+		"grid_step": grid_step,
+		"wires_visible": wires_visible,
+		"orthogonal": canvas_geometry.orthogonal,
+		"current_save_slot": current_save_slot
+	})
+	return snapshot
+
+func restore_session_state(snapshot: Dictionary) -> bool:
+	if not snapshot.get("gates") is Array or not snapshot.get("wires") is Array:
+		return false
+	for gate in snapshot["gates"]:
+		if not gate is Dictionary or not gate.get("position") is Vector2 or not gate.has("id") or not gate.has("type_id"):
+			return false
+	for wire in snapshot["wires"]:
+		if not wire is Dictionary:
+			return false
+	gate_properties.cancel()
+	canvas_geometry.stop_routing()
+	gates.assign(snapshot["gates"].duplicate(true))
+	wires.assign(snapshot["wires"].duplicate(true))
+	gunsaw_source_level = snapshot.get("gunsaw_source_level", {}).duplicate(true)
+	foundry_mode = bool(snapshot.get("foundry_mode", false))
+	physical_mode = bool(snapshot.get("physical_mode", false)) and not foundry_mode
+	foundry_layout_mode = "Expand" if snapshot.get("foundry_layout_mode") == "Expand" else "Inline"
+	component_name_field.text = str(snapshot.get("component_name", ""))
+	tick = int(snapshot.get("tick", 0))
+	next_id = int(snapshot.get("next_id", 1))
+	canvas_offset = snapshot.get("canvas_offset", Vector2.ZERO)
+	canvas_zoom = float(snapshot.get("canvas_zoom", 1.0))
+	if canvas_zoom <= 0.0 or not is_finite(canvas_zoom):
+		canvas_zoom = 1.0
+	grid_step = clampf(float(snapshot.get("grid_step", GRID_SIZE)), MIN_GRID_STEP, MAX_GRID_STEP)
+	wires_visible = bool(snapshot.get("wires_visible", true))
+	canvas_geometry.orthogonal = bool(snapshot.get("orthogonal", false))
+	current_save_slot = clampi(int(snapshot.get("current_save_slot", 1)), 1, SAVE_SLOT_COUNT)
+	selected_gates.clear()
+	for index in snapshot.get("selected_gates", []):
+		if index is int and index >= 0 and index < gates.size():
+			selected_gates.append(index)
+	selected_gate = int(snapshot.get("selected_gate", -1))
+	if selected_gate < -1 or selected_gate >= gates.size():
+		selected_gate = -1
+	selected_wire = int(snapshot.get("selected_wire", -1))
+	if selected_wire < -1 or selected_wire >= wires.size():
+		selected_wire = -1
+	pending_output = {"gate": -1, "port": -1}
+	running = false
+	simulation_accumulator = 0.0
+	dragging_gate = -1
+	resizing_gate = -1
+	connecting_wire = false
+	selecting = false
+	panning = false
+	keyboard_pan_velocity = Vector2.ZERO
+	drag_group_origins.clear()
+	drag_undo_snapshot.clear()
+	undo_history.clear()
+	simulation.dirty = true
+	canvas_geometry.dirty = true
+	canvas_geometry.moving = false
+	foundry_inline_button.set_pressed_no_signal(foundry_layout_mode == "Inline")
+	foundry_expand_button.set_pressed_no_signal(foundry_layout_mode == "Expand")
+	update_mode_toolbar()
+	rebuild_gate_toolbar()
+	update_lamp_color_picker()
+	status_text = "Restored %s session. Simulation paused." % ("Foundry" if foundry_mode else "Editor")
+	queue_redraw()
+	return true
+
 func create_undo_snapshot() -> Dictionary:
 	simulation.sync_all()
 	return {
@@ -2384,6 +2476,7 @@ func push_undo_state() -> void:
 	push_undo_snapshot(create_undo_snapshot())
 
 func push_undo_snapshot(snapshot: Dictionary, invalidate: bool = true) -> void:
+	session_recovery.mark_changed()
 	if invalidate:
 		simulation.dirty = true
 		canvas_geometry.dirty = true
@@ -2408,6 +2501,7 @@ func undo_last_action() -> void:
 	if undo_history.is_empty():
 		status_text = "Nothing to undo."
 		return
+	session_recovery.mark_changed()
 	var snapshot: Dictionary = undo_history.pop_back()
 	if snapshot.has("gate_transforms"):
 		for transform in snapshot["gate_transforms"]:
