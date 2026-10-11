@@ -21,6 +21,8 @@ const TOUCHPAD_PAN_SPEED := 32.0
 const TOUCHPAD_SCROLL_SPEED := 48.0
 const SETTINGS_PATH := "user://g-logical-settings.cfg"
 const GRID_SIZE := 32.0
+const MIN_GRID_STEP := 1.0
+const MAX_GRID_STEP := 128.0
 const NODE_SIZE := Vector2(170, 92)
 const PHYSICAL_UNIT_SIZE := 32.0
 const WHITETILE_EXPORT_SCALE := 320.0
@@ -73,6 +75,7 @@ var simulation_accumulator := 0.0
 var next_id := 1
 var canvas_offset := Vector2.ZERO
 var canvas_zoom := 1.0
+var grid_step := GRID_SIZE
 var keyboard_pan_velocity := Vector2.ZERO
 var touchpad_mode := false
 var settings_dialog: AcceptDialog
@@ -555,7 +558,7 @@ func _draw() -> void:
 	var canvas_top_left := screen_to_canvas(Vector2(0, toolbar_height))
 	var canvas_bottom_right := screen_to_canvas(size)
 	var visible_canvas := Rect2(canvas_top_left, canvas_bottom_right - canvas_top_left).abs().grow(16.0 / canvas_zoom)
-	var grid_spacing := GRID_SIZE
+	var grid_spacing := grid_step
 	while grid_spacing * canvas_zoom < 12.0:
 		grid_spacing *= 2.0
 	var first_grid_x := floori(canvas_top_left.x / grid_spacing) - 1
@@ -564,10 +567,10 @@ func _draw() -> void:
 	for x in range(first_grid_x, last_grid_x + 1):
 		var grid_x := x * grid_spacing
 		draw_line(Vector2(grid_x, canvas_top_left.y), Vector2(grid_x, canvas_bottom_right.y), grid_color, 1.0 / canvas_zoom)
-	var first_grid_y := floori((canvas_top_left.y - TOPBAR_HEIGHT) / grid_spacing) - 1
-	var last_grid_y := ceili((canvas_bottom_right.y - TOPBAR_HEIGHT) / grid_spacing) + 1
+	var first_grid_y := floori(canvas_top_left.y / grid_spacing) - 1
+	var last_grid_y := ceili(canvas_bottom_right.y / grid_spacing) + 1
 	for y in range(first_grid_y, last_grid_y + 1):
-		var grid_y := TOPBAR_HEIGHT + y * grid_spacing
+		var grid_y := y * grid_spacing
 		draw_line(Vector2(canvas_top_left.x, grid_y), Vector2(canvas_bottom_right.x, grid_y), grid_color, 1.0 / canvas_zoom)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	for i in range(gates.size()):
@@ -603,7 +606,7 @@ func _draw() -> void:
 		routing_label += " %d/%d" % [canvas_geometry.routing_index, canvas_geometry.routing_wires.size()]
 	if canvas_geometry.orthogonal and canvas_geometry.routing_failures > 0:
 		routing_label += "; unrouted: %d" % canvas_geometry.routing_failures
-	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Lines [L]: %s  |  Routing [Ctrl+L]: %s  |  %s" % [tick, ticks_per_second, "ON" if wires_visible else "OFF", routing_label, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
+	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Grid [-/+]: %d  |  Lines [L]: %s  |  Routing [Ctrl+L]: %s  |  %s" % [tick, ticks_per_second, int(grid_step), "ON" if wires_visible else "OFF", routing_label, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
 
 func build_toolbar() -> void:
 	var layer := CanvasLayer.new()
@@ -1225,6 +1228,15 @@ func _unhandled_input(event: InputEvent) -> void:
 				push_undo_state()
 				gates[selected_gate]["text"] += char(event.unicode)
 				queue_redraw()
+				return
+		if not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
+			var decrease_grid: bool = event.keycode in [KEY_MINUS, KEY_KP_SUBTRACT] or event.physical_keycode == KEY_MINUS
+			var increase_grid: bool = event.keycode in [KEY_PLUS, KEY_EQUAL, KEY_KP_ADD] or event.physical_keycode == KEY_EQUAL
+			if decrease_grid or increase_grid:
+				if not event.echo:
+					grid_step = clampf(grid_step * (0.5 if decrease_grid else 2.0), MIN_GRID_STEP, MAX_GRID_STEP)
+					queue_redraw()
+				get_viewport().set_input_as_handled()
 				return
 		if (event.physical_keycode == KEY_L or event.keycode == KEY_L) and not event.alt_pressed and not event.meta_pressed:
 			if not event.echo:
@@ -1894,7 +1906,7 @@ func duplicate_selection(include_external_outputs := false) -> void:
 	source_gates.sort()
 	var gate_map: Dictionary = {}
 	var duplicated_gates: Array[int] = []
-	var duplicate_offset := Vector2(GRID_SIZE * 2.0, GRID_SIZE * 2.0)
+	var duplicate_offset := Vector2(grid_step * 2.0, grid_step * 2.0)
 	for source_index in source_gates:
 		var duplicate_gate: Dictionary = gates[source_index].duplicate(true)
 		duplicate_gate["id"] = next_id
@@ -2343,7 +2355,7 @@ func clock_bus_output_state() -> bool:
 	return false
 
 func snap_position(pos: Vector2) -> Vector2:
-	return Vector2(round(pos.x / GRID_SIZE) * GRID_SIZE, round(pos.y / GRID_SIZE) * GRID_SIZE)
+	return pos.snapped(Vector2(grid_step, grid_step))
 
 func clamp_canvas_offset() -> void:
 	return
