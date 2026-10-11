@@ -15,6 +15,7 @@ const EXPORT_ICON = preload("res://icons/export.svg")
 const SETTINGS_ICON = preload("res://icons/settings.svg")
 const AppPalette = preload("res://app_palette.gd")
 const AppSettings = preload("res://app_settings.gd")
+const CustomComponents = preload("res://custom_components.gd")
 const SessionRecovery = preload("res://session_recovery.gd")
 const WireRenderer = preload("res://wire_renderer.gd")
 
@@ -81,6 +82,7 @@ var canvas_zoom := 1.0
 var grid_step := GRID_SIZE
 var keyboard_pan_velocity := Vector2.ZERO
 var app_settings := AppSettings.new()
+var custom_components := CustomComponents.new()
 var session_recovery := SessionRecovery.new()
 var panning := false
 var pan_start := Vector2.ZERO
@@ -248,6 +250,7 @@ func save_foundry_component() -> void:
 	for gate in saved_gates:
 		if gate["type_id"] == "EDITOR/WHITETILE":
 			gate["size"] = {"x": gate_size(gate).x, "y": gate_size(gate).y}
+		serialize_custom_component_geometry(gate)
 	LogicSimulator.reset(saved_gates)
 	var document := {
 		"format": 1,
@@ -321,6 +324,7 @@ func load_foundry_component(document: Dictionary) -> void:
 	for gate in document["gates"]:
 		var loaded_gate: Dictionary = gate.duplicate(true)
 		loaded_gate["position"] = normalized_position(loaded_gate["position"])
+		normalize_custom_component_geometry(loaded_gate)
 		loaded_gates.append(loaded_gate)
 	gates = loaded_gates
 	wires.clear()
@@ -348,16 +352,19 @@ func place_custom_component(document: Dictionary) -> void:
 	if not is_foundry_document_valid(document):
 		status_text = "Could not place Foundry component: invalid gate or wire data."
 		return
-	var asset_gates: Array = document.get("gates", [])
+	var asset_gates: Array = document.get("gates", []).duplicate(true)
+	for child in asset_gates:
+		child["position"] = normalized_position(child["position"])
+		normalize_custom_component_geometry(child)
 	var asset_wires: Array = document.get("wires", [])
 	LogicSimulator.reset(asset_gates)
 	var inputs: Array[Dictionary] = []
 	var outputs: Array[Dictionary] = []
 	for index in range(asset_gates.size()):
 		var asset_gate: Dictionary = asset_gates[index]
-		if asset_gate.get("type_id", "") == "EDITOR/COMPONENT_INPUT":
+		if asset_gate.get("type_id", "") == "EDITOR/COMPONENT_INPUT" and custom_components.is_interface(asset_gate):
 			inputs.append({"gate": index, "label": str(asset_gate["output_names"][0])})
-		elif asset_gate.get("type_id", "") == "EDITOR/COMPONENT_OUTPUT":
+		elif asset_gate.get("type_id", "") == "EDITOR/COMPONENT_OUTPUT" and custom_components.is_interface(asset_gate):
 			outputs.append({"gate": index, "label": str(asset_gate["input_names"][0])})
 	var spawn_position := snap_position(screen_to_canvas(get_viewport_rect().size * 0.5) - NODE_SIZE * 0.5)
 	var gate := {
@@ -406,7 +413,41 @@ func place_custom_component(document: Dictionary) -> void:
 	status_text = "Placed custom component '%s'." % gate["name"]
 	queue_redraw()
 
-func is_foundry_document_valid(document: Dictionary) -> bool:
+func unpack_selected_components() -> void:
+	gate_properties.commit()
+	var indices: Array[int] = []
+	for index in selected_gates:
+		if index >= 0 and index < gates.size() and gates[index]["type_id"] == "EDITOR/CUSTOM":
+			indices.append(index)
+	if indices.is_empty() and selected_gate >= 0 and selected_gate < gates.size() and gates[selected_gate]["type_id"] == "EDITOR/CUSTOM":
+		indices.append(selected_gate)
+	if indices.is_empty():
+		status_text = "Select a custom component to unpack."
+		queue_redraw()
+		return
+	push_undo_state()
+	var result := custom_components.expand_once(gates, wires, indices, true)
+	gates.assign(result["gates"])
+	wires.assign(result["wires"])
+	selected_gates.assign(result["created"])
+	for index in selected_gates:
+		gates[index]["id"] = next_id
+		next_id += 1
+	selected_gate = selected_gates[0] if not selected_gates.is_empty() else -1
+	selected_wire = -1
+	pending_output = {"gate": -1, "port": -1}
+	connecting_wire = false
+	if foundry_mode:
+		for gate in gates:
+			if gate["type_id"] in ["MP/IO/BUTTON", "MP/IO/LAMP"]:
+				set_foundry_layout("Expand")
+				break
+	status_text = "Unpacked %d custom component(s)." % indices.size()
+	queue_redraw()
+
+func is_foundry_document_valid(document: Dictionary, depth: int = 0) -> bool:
+	if depth >= CustomComponents.MAX_DEPTH:
+		return false
 	var document_gates = document.get("gates", null)
 	var document_wires = document.get("wires", null)
 	if not document_gates is Array or document_gates.is_empty() or not document_wires is Array:
@@ -423,10 +464,20 @@ func is_foundry_document_valid(document: Dictionary) -> bool:
 			return false
 		if gate["inputs"].size() != gate["input_names"].size() or gate["previous_inputs"].size() != gate["input_names"].size() or gate["outputs"].size() != gate["output_names"].size():
 			return false
-		if gate["type_id"] in ["EDITOR/WHITETILE", "EDITOR/CLOCK_IN", "EDITOR/CLOCK_OUT", "EDITOR/COMMENT", "EDITOR/CUSTOM"]:
+		if gate["type_id"] in ["EDITOR/WHITETILE", "EDITOR/CLOCK_IN", "EDITOR/CLOCK_OUT", "EDITOR/COMMENT"]:
 			return false
+		if gate["type_id"] == "EDITOR/CUSTOM":
+			if not custom_components.valid_ports(gate):
+				return false
+			if not is_foundry_document_valid({"gates": gate["custom_gates"], "wires": gate["custom_wires"], "layout": gate.get("custom_layout_mode", "Inline")}, depth + 1):
+				return false
+			continue
 		if gate["type_id"] in ["MP/IO/BUTTON", "MP/IO/LAMP"] and layout != "Expand":
 			return false
+		if gate.get("unpacked_bridge", false):
+			if gate["type_id"] not in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"] or gate["inputs"].size() != 1 or gate["outputs"].size() != 1:
+				return false
+			continue
 		var type_is_known := false
 		for definition in GATE_TYPES:
 			if definition["id"] == gate["type_id"]:
@@ -569,7 +620,7 @@ func _draw() -> void:
 	for i in range(gates.size()):
 		if gates[i]["type_id"] == "EDITOR/WHITETILE" and not physical_mode:
 			continue
-		if not foundry_mode and gates[i]["type_id"] in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"]:
+		if not foundry_mode and gates[i]["type_id"] in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"] and not gates[i].get("unpacked_interface", false):
 			continue
 		if physical_mode and not is_physical_gate(gates[i]):
 			continue
@@ -850,7 +901,7 @@ func switch_mode(target_mode: String) -> void:
 	if foundry_mode:
 		foundry_inline_button.set_pressed_no_signal(foundry_layout_mode == "Inline")
 		foundry_expand_button.set_pressed_no_signal(foundry_layout_mode == "Expand")
-		status_text = "Foundry mode. Save named components to use them in Editor mode."
+		status_text = "Foundry mode. Save named components to use them in Editor or Foundry."
 	else:
 		status_text = "Editor mode enabled." if target_mode == "editor" else "Physical mode enabled."
 	update_mode_toolbar()
@@ -912,9 +963,10 @@ func rebuild_gate_toolbar() -> void:
 		)
 		button.custom_minimum_size.x = 82 if GATE_TYPES[i]["name"].length() < 6 else 108
 		button.tooltip_text = "Click to add; Shift-click to swap selected gates."
-	if not foundry_mode:
-		var custom_button := toolbar_button(gate_toolbar, "CUSTOM", open_custom_component_menu)
-		custom_button.tooltip_text = "Place a saved Foundry component."
+	var custom_button := toolbar_button(gate_toolbar, "CUSTOM", open_custom_component_menu)
+	custom_button.tooltip_text = "Place a saved Foundry component."
+	var unpack_button := toolbar_button(gate_toolbar, "UNPACK", unpack_selected_components)
+	unpack_button.tooltip_text = "Unpack selected custom components into editable elements."
 
 func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 	if not compiled_custom_components:
@@ -1045,6 +1097,10 @@ func draw_custom_child_gate(gate: Dictionary, child_position: Vector2) -> void:
 	draw_rect(rect, AppPalette.color("#647b99"), false, 1)
 	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 24)), AppPalette.color("#344963"), true)
 	draw_string(font, rect.position + Vector2(6, 17), str(gate.get("name", "GATE")), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 12, 11, AppPalette.color("#f5f7fb"))
+	if gate_type == "EDITOR/CUSTOM" and gate.get("custom_layout_mode") == "Expand":
+		for child in gate.get("custom_gates", []):
+			if is_custom_child_visible(child) and child["type_id"] not in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"]:
+				draw_custom_child_gate(child, custom_components.child_position(gate, child, child_position))
 	if is_button:
 		draw_string(font, rect.position + Vector2(8, 54), "BUTTON", HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 16, 11, AppPalette.color("#d8e1ee"))
 	elif is_lamp:
@@ -1539,21 +1595,15 @@ func handle_press(pos: Vector2, _swap_selected := false, double_click := false) 
 			continue
 		var rect := Rect2(gates[i]["position"], gate_size(gates[i]))
 		if rect.has_point(pos):
-			if gates[i]["type_id"] == "EDITOR/CUSTOM" and gates[i].get("custom_layout_mode", "Inline") == "Expand":
-				var child_gates: Array = gates[i].get("custom_gates", [])
-				var child_origin: Vector2 = normalized_position(gates[i].get("custom_origin", Vector2.ZERO))
-				for child_index in range(child_gates.size()):
-					var child_gate: Dictionary = child_gates[child_index]
-					if child_gate.get("type_id", "") != "MP/IO/BUTTON":
-						continue
-					var child_position: Vector2 = gates[i]["position"] + normalized_position(child_gate.get("position", Vector2.ZERO)) - child_origin + Vector2(16, 40)
-					if Rect2(child_position, GateProperties.node_size(child_gate, NODE_SIZE)).has_point(pos):
-						child_gate["pulse_pending"] = true
-						selected_gates = [i]
-						selected_gate = i
-						status_text = "Internal button pulse queued for the next tick."
-						queue_redraw()
-						return
+			if gates[i]["type_id"] == "EDITOR/CUSTOM":
+				var button := custom_components.button_at(gates[i], gates[i]["position"], pos)
+				if not button.is_empty():
+					button["pulse_pending"] = true
+					selected_gates = [i]
+					selected_gate = i
+					status_text = "Internal button pulse queued for the next tick."
+					queue_redraw()
+					return
 			if foundry_mode and double_click and gates[i]["type_id"] in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"]:
 				port_name_target = i
 				port_name_field.text = gates[i]["name"]
@@ -2038,6 +2088,8 @@ func has_invalid_connection_topology(source_wires: Array) -> bool:
 		topology_wires = flattened["wires"]
 		topology_gates = flattened["gates"]
 	for wire in get_expanded_wires(topology_wires, true, topology_gates):
+		if topology_gates[int(wire["to_gate"])].get("unpacked_bridge", false):
+			continue
 		add_connection_edge(adjacency, "o:%d:%d" % [wire["from_gate"], wire["from_port"]], "i:%d:%d" % [wire["to_gate"], wire["to_port"]])
 	var visited: Dictionary = {}
 	for start_node in adjacency:
@@ -2095,7 +2147,7 @@ func get_expanded_wires(source_wires: Array, include_clock_inputs := true, sourc
 				"to_gate": destination["to_gate"],
 				"to_port": destination["to_port"]
 			})
-	return expanded
+	return custom_components.expand_bridges(source_gates, expanded, include_clock_inputs)
 
 func reset_simulation() -> void:
 	gate_properties.cancel()
@@ -2110,9 +2162,6 @@ func reset_simulation() -> void:
 	simulation_accumulator = 0.0
 	simulation.dirty = true
 	LogicSimulator.reset(gates)
-	for gate in gates:
-		if gate["type_id"] == "EDITOR/CUSTOM":
-			LogicSimulator.reset(gate["custom_gates"])
 	status_text = "Simulation reset."
 	queue_redraw()
 
@@ -2138,46 +2187,19 @@ func simulate_custom_tick() -> void:
 	var simulation_wires: Array = get_expanded_wires(flattened["wires"], true, simulation_gates)
 	if simulation.dirty or simulation.gate_count != simulation_gates.size() or simulation.wire_count != simulation_wires.size():
 		simulation.compile(simulation_gates, simulation_wires, simulation_wires.size())
-	for gate_index in range(gates.size()):
-		var flat_index: int = flattened["gate_map"][gate_index]
-		if flat_index >= 0:
-			simulation._gates[flat_index]["pulse_pending"] = gates[gate_index].get("pulse_pending", false)
-		elif gates[gate_index]["type_id"] == "EDITOR/CUSTOM":
-			var child_map: Array = flattened["instances"][gate_index]["children"]
-			var children: Array = gates[gate_index]["custom_gates"]
-			for child_index in range(child_map.size()):
-				if child_map[child_index] >= 0:
-					simulation._gates[child_map[child_index]]["pulse_pending"] = children[child_index].get("pulse_pending", false)
+	for index in range(flattened["origins"].size()):
+		simulation._gates[index]["pulse_pending"] = flattened["origins"][index].get("pulse_pending", false)
 	simulation.advance()
 	simulation.sync_all()
-	for gate_index in range(gates.size()):
-		var flat_index: int = flattened["gate_map"][gate_index]
-		if flat_index >= 0:
-			copy_simulation_state(simulation._gates[flat_index], gates[gate_index])
-		elif gates[gate_index]["type_id"] == "EDITOR/CUSTOM":
-			var child_map: Array = flattened["instances"][gate_index]["children"]
-			var children: Array = gates[gate_index]["custom_gates"]
-			for child_index in range(child_map.size()):
-				if child_map[child_index] >= 0:
-					copy_simulation_state(simulation._gates[child_map[child_index]], children[child_index])
-	for gate_index in range(gates.size()):
-		if gates[gate_index]["type_id"] == "EDITOR/CUSTOM":
-			for port in range(gates[gate_index]["inputs"].size()):
+	for index in range(flattened["origins"].size()):
+		copy_simulation_state(simulation._gates[index], flattened["origins"][index])
+	for view in flattened["views"]:
+		for role in ["inputs", "outputs"]:
+			for port in range(view[role].size()):
 				var high := false
-				for wire in wires:
-					if wire["to_gate"] == gate_index and wire["to_port"] == port:
-						high = high or gates[wire["from_gate"]]["outputs"][wire["from_port"]]
-				gates[gate_index]["inputs"][port] = high
-			var custom_ports: Array = flattened["custom_outputs"].get(gate_index, [])
-			for port in range(gates[gate_index]["outputs"].size()):
-				var sources: Array = custom_ports[port]
-				var high := false
-				for source in sources:
+				for source in view[role][port]:
 					high = high or simulation._gates[source["gate"]]["outputs"][source["port"]]
-				var pass_ports: Array = flattened["custom_pass"].get(gate_index, [])[port]
-				for input_port in pass_ports:
-					high = high or gates[gate_index]["inputs"][input_port]
-				gates[gate_index]["outputs"][port] = high
+				view["gate"][role][port] = high
 
 func copy_simulation_state(source: Dictionary, target: Dictionary) -> void:
 	for key in ["inputs", "outputs", "previous_inputs", "memory", "state", "pulse_pending"]:
@@ -2249,122 +2271,7 @@ func serialize_custom_component_geometry(gate: Dictionary) -> void:
 		serialize_custom_component_geometry(child_gate)
 
 func expand_custom_components(source_wires: Array = []) -> Dictionary:
-	if source_wires.is_empty():
-		source_wires = wires
-	var expanded_gates: Array[Dictionary] = []
-	var expanded_wires: Array[Dictionary] = []
-	var gate_map: Array[int] = []
-	var instance_maps: Dictionary = {}
-	var custom_outputs: Dictionary = {}
-	var custom_pass: Dictionary = {}
-	for gate_index in range(gates.size()):
-		var gate: Dictionary = gates[gate_index]
-		if gate["type_id"] != "EDITOR/CUSTOM":
-			gate_map.append(expanded_gates.size())
-			expanded_gates.append(gate.duplicate(true))
-			continue
-		gate_map.append(-1)
-		var child_gates: Array = gate.get("custom_gates", [])
-		var child_wires: Array = gate.get("custom_wires", [])
-		var child_map: Array[int] = []
-		for child_index in range(child_gates.size()):
-			var child: Dictionary = child_gates[child_index]
-			if child.get("type_id", "") in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"]:
-				child_map.append(-1)
-				continue
-			var copy: Dictionary = child.duplicate(true)
-			var child_position := normalized_position(copy.get("position", Vector2.ZERO))
-			if gate.get("custom_layout_mode", "Inline") == "Inline":
-				copy["position"] = gate["position"]
-			else:
-				copy["position"] = gate["position"] + child_position - normalized_position(gate.get("custom_origin", Vector2.ZERO))
-			child_map.append(expanded_gates.size())
-			expanded_gates.append(copy)
-		var inputs: Array = gate.get("custom_inputs", [])
-		var outputs: Array = gate.get("custom_outputs", [])
-		var input_targets: Array = []
-		var output_sources: Array = []
-		var pass_through: Array = []
-		input_targets.resize(inputs.size())
-		output_sources.resize(outputs.size())
-		pass_through.resize(outputs.size())
-		for index in range(inputs.size()):
-			input_targets[index] = []
-		for index in range(outputs.size()):
-			output_sources[index] = []
-			pass_through[index] = []
-		for child_wire in child_wires:
-			var from_index := int(child_wire["from_gate"])
-			var to_index := int(child_wire["to_gate"])
-			var from_type: String = child_gates[from_index].get("type_id", "")
-			var to_type: String = child_gates[to_index].get("type_id", "")
-			if from_type == "EDITOR/COMPONENT_INPUT":
-				var parent_port := find_custom_port(inputs, from_index)
-				if parent_port >= 0:
-					if to_type == "EDITOR/COMPONENT_OUTPUT":
-						var output_port := find_custom_port(outputs, to_index)
-						if output_port >= 0:
-							pass_through[output_port].append(parent_port)
-					elif child_map[to_index] >= 0:
-						input_targets[parent_port].append({"gate": child_map[to_index], "port": int(child_wire["to_port"])})
-			elif to_type == "EDITOR/COMPONENT_OUTPUT":
-				var parent_port := find_custom_port(outputs, to_index)
-				if parent_port >= 0 and child_map[from_index] >= 0:
-					output_sources[parent_port].append({"gate": child_map[from_index], "port": int(child_wire["from_port"])})
-			elif child_map[from_index] >= 0 and child_map[to_index] >= 0:
-				expanded_wires.append({
-					"from_gate": child_map[from_index], "from_port": int(child_wire["from_port"]),
-					"to_gate": child_map[to_index], "to_port": int(child_wire["to_port"])
-				})
-		instance_maps[gate_index] = {"inputs": input_targets, "outputs": output_sources, "pass": pass_through, "children": child_map}
-		custom_outputs[gate_index] = output_sources
-		custom_pass[gate_index] = pass_through
-	for wire in source_wires:
-		var source_gate := int(wire["from_gate"])
-		var target_gate := int(wire["to_gate"])
-		var sources: Array = []
-		var destinations: Array = []
-		if gate_map[source_gate] >= 0:
-			sources.append({"gate": gate_map[source_gate], "port": int(wire["from_port"])})
-		else:
-			sources = resolve_custom_output_sources(source_gate, int(wire["from_port"]), source_wires, gate_map, instance_maps, 0)
-		if gate_map[target_gate] >= 0:
-			destinations.append({"gate": gate_map[target_gate], "port": int(wire["to_port"])})
-		else:
-			var instance: Dictionary = instance_maps[target_gate]
-			var port := int(wire["to_port"])
-			destinations = instance["inputs"][port]
-		for source in sources:
-			for destination in destinations:
-				expanded_wires.append({
-					"from_gate": source["gate"], "from_port": source["port"],
-					"to_gate": destination["gate"], "to_port": destination["port"]
-				})
-	return {"gates": expanded_gates, "wires": expanded_wires, "gate_map": gate_map, "instances": instance_maps, "custom_outputs": custom_outputs, "custom_pass": custom_pass}
-
-func find_custom_port(ports: Array, child_gate_index: int) -> int:
-	for port_index in range(ports.size()):
-		if int(ports[port_index]["gate"]) == child_gate_index:
-			return port_index
-	return -1
-
-func resolve_custom_output_sources(instance_gate: int, output_port: int, source_wires: Array, gate_map: Array, instance_maps: Dictionary, depth: int) -> Array:
-	var resolved: Array = []
-	if depth > gates.size() or not instance_maps.has(instance_gate):
-		return resolved
-	var instance: Dictionary = instance_maps[instance_gate]
-	resolved.append_array(instance["outputs"][output_port])
-	for input_port in instance["pass"][output_port]:
-		for wire in source_wires:
-			if int(wire["to_gate"]) != instance_gate or int(wire["to_port"]) != input_port:
-				continue
-			var source_gate := int(wire["from_gate"])
-			var source_port := int(wire["from_port"])
-			if gate_map[source_gate] >= 0:
-				resolved.append({"gate": gate_map[source_gate], "port": source_port})
-			else:
-				resolved.append_array(resolve_custom_output_sources(source_gate, source_port, source_wires, gate_map, instance_maps, depth + 1))
-	return resolved
+	return custom_components.expand(gates, wires if source_wires.is_empty() else source_wires)
 
 func has_custom_components() -> bool:
 	for gate in gates:
@@ -2481,6 +2388,7 @@ func create_undo_snapshot() -> Dictionary:
 		"canvas_offset": canvas_offset,
 		"canvas_zoom": canvas_zoom,
 		"physical_mode": physical_mode,
+		"foundry_layout_mode": foundry_layout_mode,
 		"selected_gates": selected_gates.duplicate(),
 		"selected_gate": selected_gate,
 		"selected_wire": selected_wire,
@@ -2562,6 +2470,11 @@ func undo_last_action() -> void:
 	next_id = snapshot["next_id"]
 	canvas_offset = snapshot["canvas_offset"]
 	canvas_zoom = snapshot.get("canvas_zoom", canvas_zoom)
+	if foundry_layout_mode != snapshot.get("foundry_layout_mode", foundry_layout_mode):
+		foundry_layout_mode = snapshot["foundry_layout_mode"]
+		foundry_inline_button.set_pressed_no_signal(foundry_layout_mode == "Inline")
+		foundry_expand_button.set_pressed_no_signal(foundry_layout_mode == "Expand")
+		rebuild_gate_toolbar()
 	if physical_mode != snapshot.get("physical_mode", physical_mode):
 		physical_mode = snapshot["physical_mode"]
 		physical_button.button_pressed = physical_mode
@@ -2619,7 +2532,6 @@ func save_editor(slot: int = current_save_slot) -> void:
 		gate["pulse_pending"] = false
 		if gate["type_id"] == "EDITOR/CUSTOM":
 			serialize_custom_component_geometry(gate)
-			LogicSimulator.reset(gate["custom_gates"])
 	LogicSimulator.reset(saved_gates)
 	var document := {
 		"format": 1,

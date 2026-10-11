@@ -46,6 +46,8 @@ var _step_seconds: float = PackedFloat32Array([STEP_SECONDS])[0]
 
 static func reset(gates: Array) -> void:
 	for gate in gates:
+		if gate.get("type_id") == "EDITOR/CUSTOM":
+			reset(gate.get("custom_gates", []))
 		gate["inputs"].fill(false)
 		gate["outputs"].fill(false)
 		gate["previous_inputs"].fill(false)
@@ -90,7 +92,7 @@ func compile(gates: Array, wires: Array, original_wire_count: int) -> void:
 	for i in range(gate_count):
 		var gate: Dictionary = gates[i]
 		var data: Dictionary = gate.get("gunsaw_data", {})
-		var op: int = OPERATIONS.get(gate["type_id"], Op.NONE)
+		var op: int = Op.OR if gate.get("unpacked_bridge", false) else OPERATIONS.get(gate["type_id"], Op.NONE)
 		_ops[i] = op
 		_groups[op].append(i)
 		if op >= Op.SR and op <= Op.TFF:
