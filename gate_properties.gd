@@ -1,5 +1,7 @@
 extends Control
 
+const AppPalette = preload("res://app_palette.gd")
+
 signal parameter_changed(gate_id: int, field: String, value: Variant)
 
 const FIELDS := {
@@ -91,10 +93,10 @@ func draw_fields(canvas: CanvasItem, gate: Dictionary, font: Font) -> void:
 			"bool": text = "HIGH  1" if int(value) != 0 else "LOW  0"
 			"choice": text = ["Rise", "Fall", "Both"][clampi(int(value), 0, 2)]
 			"number": text = String.num(float(value), 3)
-		canvas.draw_rect(rect, Color("#182334"))
-		canvas.draw_rect(rect, Color("#536b89"), false, 1)
-		canvas.draw_string(font, rect.position + Vector2(5, 16), field[1], HORIZONTAL_ALIGNMENT_LEFT, 79, 11, Color("#aab8cb"))
-		canvas.draw_string(font, rect.position + Vector2(86, 16), text, HORIZONTAL_ALIGNMENT_RIGHT, 62, 12, Color("#f1d28c"))
+		canvas.draw_rect(rect, AppPalette.color("#182334"))
+		canvas.draw_rect(rect, AppPalette.color("#536b89"), false, 1)
+		canvas.draw_string(font, rect.position + Vector2(5, 16), field[1], HORIZONTAL_ALIGNMENT_LEFT, 79, 11, AppPalette.color("#aab8cb"))
+		canvas.draw_string(font, rect.position + Vector2(86, 16), text, HORIZONTAL_ALIGNMENT_RIGHT, 62, 12, AppPalette.color("#f1d28c"))
 
 func activate(gate: Dictionary, row: int) -> void:
 	commit()

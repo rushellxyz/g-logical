@@ -13,13 +13,14 @@ const LOAD_ICON = preload("res://icons/load.svg")
 const IMPORT_ICON = preload("res://icons/import.svg")
 const EXPORT_ICON = preload("res://icons/export.svg")
 const SETTINGS_ICON = preload("res://icons/settings.svg")
+const AppPalette = preload("res://app_palette.gd")
+const AppSettings = preload("res://app_settings.gd")
 
 const TOPBAR_HEIGHT := 72.0
 const KEYBOARD_PAN_SPEED := 1400.0
 const KEYBOARD_PAN_RESPONSE := 12.0
 const TOUCHPAD_PAN_SPEED := 32.0
 const TOUCHPAD_SCROLL_SPEED := 48.0
-const SETTINGS_PATH := "user://g-logical-settings.cfg"
 const GRID_SIZE := 32.0
 const MIN_GRID_STEP := 1.0
 const MAX_GRID_STEP := 128.0
@@ -77,8 +78,7 @@ var canvas_offset := Vector2.ZERO
 var canvas_zoom := 1.0
 var grid_step := GRID_SIZE
 var keyboard_pan_velocity := Vector2.ZERO
-var touchpad_mode := false
-var settings_dialog: AcceptDialog
+var app_settings := AppSettings.new()
 var panning := false
 var pan_start := Vector2.ZERO
 var pan_offset_start := Vector2.ZERO
@@ -146,8 +146,12 @@ var gate_properties: GateProperties
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
-	load_app_settings()
-	build_settings_dialog()
+	app_settings.controls_changed.connect(func(): keyboard_pan_velocity = Vector2.ZERO)
+	app_settings.save_failed.connect(func(message: String):
+		status_text = message
+		queue_redraw()
+	)
+	add_child(app_settings)
 	save_slot_menu = PopupMenu.new()
 	save_slot_menu.id_pressed.connect(_on_save_slot_menu_id_pressed)
 	add_child(save_slot_menu)
@@ -188,43 +192,11 @@ func _ready() -> void:
 	setup_import_dialog()
 	get_viewport().size_changed.connect(queue_redraw)
 	update_lamp_color_picker()
+	app_settings.apply_theme()
 	queue_redraw()
 
 func _exit_tree() -> void:
 	canvas_geometry.stop_routing()
-
-func load_app_settings() -> void:
-	var settings := ConfigFile.new()
-	if settings.load(SETTINGS_PATH) == OK:
-		touchpad_mode = bool(settings.get_value("controls", "touchpad_mode", false))
-
-func set_touchpad_mode(enabled: bool) -> void:
-	touchpad_mode = enabled
-	keyboard_pan_velocity = Vector2.ZERO
-	var settings := ConfigFile.new()
-	settings.set_value("controls", "touchpad_mode", touchpad_mode)
-	var error := settings.save(SETTINGS_PATH)
-	if error != OK:
-		status_text = "Could not save app settings: %s." % error_string(error)
-		queue_redraw()
-
-func build_settings_dialog() -> void:
-	settings_dialog = AcceptDialog.new()
-	settings_dialog.title = "Settings"
-	settings_dialog.ok_button_text = "Close"
-	add_child(settings_dialog)
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 12)
-	settings_dialog.add_child(content)
-	var heading := Label.new()
-	heading.text = "Controls"
-	heading.add_theme_font_size_override("font_size", 18)
-	content.add_child(heading)
-	var toggle := CheckButton.new()
-	toggle.text = "Touchpad mode"
-	toggle.button_pressed = touchpad_mode
-	toggle.toggled.connect(set_touchpad_mode)
-	content.add_child(toggle)
 
 func foundry_directory() -> String:
 	var directory := DirAccess.open("user://")
@@ -522,7 +494,6 @@ func _process(_delta: float) -> void:
 		queue_redraw()
 
 func update_keyboard_pan(delta: float) -> void:
-	# Keep navigation out of text editing, shortcuts and mouse gestures.
 	if not get_window().has_focus() or get_viewport().gui_get_focus_owner() != null or panning or dragging_gate >= 0 or resizing_gate >= 0 or selecting or connecting_wire:
 		keyboard_pan_velocity = Vector2.ZERO
 		return
@@ -540,7 +511,6 @@ func update_keyboard_pan(delta: float) -> void:
 		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
 		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
 	).normalized()
-	# The canvas moves opposite to the camera; speed is in screen pixels/second.
 	var target_velocity := -direction * KEYBOARD_PAN_SPEED
 	var blend := 1.0 - exp(-KEYBOARD_PAN_RESPONSE * delta)
 	var movement := target_velocity * delta + (keyboard_pan_velocity - target_velocity) * blend / KEYBOARD_PAN_RESPONSE
@@ -559,8 +529,8 @@ func _draw() -> void:
 	drawn_tps = ticks_per_second
 	drawn_toolbar_height = toolbar_height
 	var size := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, size), Color("#111722"))
-	draw_rect(Rect2(0, toolbar_height, size.x, maxf(0.0, size.y - toolbar_height)), Color("#542b2b") if foundry_mode else Color("#15271f") if physical_mode else Color("#151c29"))
+	draw_rect(Rect2(Vector2.ZERO, size), AppPalette.color("#111722"))
+	draw_rect(Rect2(0, toolbar_height, size.x, maxf(0.0, size.y - toolbar_height)), AppPalette.color("#542b2b") if foundry_mode else AppPalette.color("#15271f") if physical_mode else AppPalette.color("#151c29"))
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 	var canvas_top_left := screen_to_canvas(Vector2(0, toolbar_height))
 	var canvas_bottom_right := screen_to_canvas(size)
@@ -570,7 +540,7 @@ func _draw() -> void:
 		grid_spacing *= 2.0
 	var first_grid_x := floori(canvas_top_left.x / grid_spacing) - 1
 	var last_grid_x := ceili(canvas_bottom_right.x / grid_spacing) + 1
-	var grid_color := Color("#a34c4c") if foundry_mode else Color("#28543f") if physical_mode else Color("#202a3a")
+	var grid_color := AppPalette.color("#a34c4c") if foundry_mode else AppPalette.color("#28543f") if physical_mode else AppPalette.color("#202a3a")
 	for x in range(first_grid_x, last_grid_x + 1):
 		var grid_x := x * grid_spacing
 		draw_line(Vector2(grid_x, canvas_top_left.y), Vector2(grid_x, canvas_bottom_right.y), grid_color, 1.0 / canvas_zoom)
@@ -596,24 +566,24 @@ func _draw() -> void:
 			if canvas_geometry.wire_bounds[i].intersects(wire_view, true):
 				_draw_wire(wires[i], i == selected_wire, i)
 	if selecting:
-		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), Color("#6ca9e8", 0.18), true)
-		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), Color("#8bc5f5"), false, 1.0)
+		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), AppPalette.color("#6ca9e8", 0.18), true)
+		draw_rect(Rect2(selection_start, selection_current - selection_start).abs(), AppPalette.color("#8bc5f5"), false, 1.0)
 	if not physical_mode and pending_output["gate"] >= 0 and get_local_mouse_position().y >= toolbar_height:
 		draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 		var start := port_position(pending_output["gate"], false, pending_output["port"])
 		var end := screen_to_canvas(get_local_mouse_position())
 		if canvas_geometry.orthogonal:
 			var path := canvas_geometry.route(start, end, canvas_geometry.gate_bounds[pending_output["gate"]], Rect2(end, Vector2.ZERO), pending_output["port"], 0)
-			draw_circuit_wire(path, Color("#895b29"), 8.0)
+			draw_circuit_wire(path, AppPalette.color("#895b29"), 8.0)
 		else:
-			draw_line(start, end, Color("#99752c"), 3.0 / canvas_zoom)
+			draw_line(start, end, AppPalette.color("#99752c"), 3.0 / canvas_zoom)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	var routing_label := "CIRCUIT" if canvas_geometry.orthogonal else "STRAIGHT"
 	if canvas_geometry.orthogonal and canvas_geometry.routing_index < canvas_geometry.routing_wires.size():
 		routing_label += " %d/%d" % [canvas_geometry.routing_index, canvas_geometry.routing_wires.size()]
 	if canvas_geometry.orthogonal and canvas_geometry.routing_failures > 0:
 		routing_label += "; unrouted: %d" % canvas_geometry.routing_failures
-	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Grid [-/+]: %d  |  Lines [L]: %s  |  Routing [Ctrl+L]: %s  |  %s" % [tick, ticks_per_second, int(grid_step), "ON" if wires_visible else "OFF", routing_label, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aab8cb"))
+	draw_string(font, Vector2(18, get_viewport_rect().size.y - 18), "Tick %d  |  TPS %.1f  |  Grid [-/+]: %d  |  Lines [L]: %s  |  Routing [Ctrl+L]: %s  |  %s" % [tick, ticks_per_second, int(grid_step), "ON" if wires_visible else "OFF", routing_label, status_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, AppPalette.color("#aab8cb"))
 
 func build_toolbar() -> void:
 	var layer := CanvasLayer.new()
@@ -652,7 +622,7 @@ func build_toolbar() -> void:
 	tools.add_theme_constant_override("separation", 6)
 	tools.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(tools)
-	toolbar_icon_button(tools, SETTINGS_ICON, "Settings", func(): settings_dialog.popup_centered())
+	toolbar_icon_button(tools, SETTINGS_ICON, "Settings", app_settings.open)
 	editor_mode_button = toolbar_button(tools, "EDITOR", func(): request_mode_switch("editor"))
 	physical_button = toolbar_button(tools, "PHYSICAL", func(): request_mode_switch("physical"))
 	foundry_mode_button = toolbar_button(tools, "FOUNDRY", func(): request_mode_switch("foundry"))
@@ -895,6 +865,7 @@ func set_foundry_layout(layout: String) -> void:
 	queue_redraw()
 
 func rebuild_gate_toolbar() -> void:
+	app_settings.call_deferred("apply_theme")
 	for child in gate_toolbar.get_children():
 		gate_toolbar.remove_child(child)
 		child.queue_free()
@@ -928,37 +899,37 @@ func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 	var rect := Rect2(gate["position"], gate_size(gate))
 	if gate["type_id"] == "EDITOR/WHITETILE":
-		draw_rect(rect, Color("#434443"), true)
-		draw_rect(rect, Color("#9ca9a0") if gate_index not in selected_gates else Color("#71c28b"), false, 2)
+		draw_rect(rect, AppPalette.color("#434443"), true)
+		draw_rect(rect, AppPalette.color("#9ca9a0") if gate_index not in selected_gates else AppPalette.color("#71c28b"), false, 2)
 		if gate_index in selected_gates:
 			for edge_x in [0.0, rect.size.x * 0.5, rect.size.x]:
 				for edge_y in [0.0, rect.size.y * 0.5, rect.size.y]:
-					draw_rect(Rect2(rect.position + Vector2(edge_x, edge_y) - Vector2(4, 4), Vector2(8, 8)), Color("#71c28b"), true)
+					draw_rect(Rect2(rect.position + Vector2(edge_x, edge_y) - Vector2(4, 4), Vector2(8, 8)), AppPalette.color("#71c28b"), true)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	var is_selected: bool = gate_index in selected_gates
-	var gate_color := Color("#3d628b") if is_selected else Color("#29364b")
+	var gate_color := AppPalette.color("#3d628b") if is_selected else AppPalette.color("#29364b")
 	if gate["type_id"] == "EDITOR/CUSTOM":
-		gate_color = Color("#5a426e") if is_selected else Color("#3b2d49")
+		gate_color = AppPalette.color("#5a426e") if is_selected else AppPalette.color("#3b2d49")
 	elif gate["type_id"] in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"]:
-		gate_color = Color("#563d70") if is_selected else Color("#3d2d50")
+		gate_color = AppPalette.color("#563d70") if is_selected else AppPalette.color("#3d2d50")
 	if gate["type_id"] == "EDITOR/COMMENT":
-		gate_color = Color("#51452d") if not is_selected else Color("#806d3d")
+		gate_color = AppPalette.color("#51452d") if not is_selected else AppPalette.color("#806d3d")
 	elif gate["type_id"] == "EDITOR/CLOCK_IN":
-		gate_color = Color("#394a68") if not is_selected else Color("#5476a8")
+		gate_color = AppPalette.color("#394a68") if not is_selected else AppPalette.color("#5476a8")
 	elif gate["type_id"] == "EDITOR/CLOCK_OUT":
-		gate_color = Color("#514c32") if not is_selected else Color("#827546")
+		gate_color = AppPalette.color("#514c32") if not is_selected else AppPalette.color("#827546")
 	if gate["type_id"] == "MP/IO/LAMP" and gate["state"]:
 		var lamp_color := Color(gate.get("lamp_color", "#FFD23F"))
 		gate_color = lamp_color.lightened(0.1) if is_selected else lamp_color.darkened(0.25)
 	draw_rect(rect, gate_color, true)
-	draw_rect(rect, Color("#77a9d8") if is_selected else Color("#485b75"), false, 2)
-	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 28)), Color("#344963"), true)
+	draw_rect(rect, AppPalette.color("#77a9d8") if is_selected else AppPalette.color("#485b75"), false, 2)
+	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 28)), AppPalette.color("#344963"), true)
 	if canvas_zoom >= 0.5:
-		draw_string(font, rect.position + Vector2(10, 19), gate["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#f5f7fb"))
+		draw_string(font, rect.position + Vector2(10, 19), gate["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, AppPalette.color("#f5f7fb"))
 	if gate["type_id"] == "EDITOR/COMMENT":
 		if canvas_zoom >= 0.5:
-			draw_string(font, rect.position + Vector2(10, 58), gate["text"], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, 14, Color("#ffe7a3"))
+			draw_string(font, rect.position + Vector2(10, 58), gate["text"], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, 14, AppPalette.color("#ffe7a3"))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	if gate["type_id"] == "EDITOR/CUSTOM" and gate.get("custom_layout_mode", "Inline") == "Expand" and canvas_zoom >= 0.25:
@@ -972,21 +943,21 @@ func _draw_gate(gate: Dictionary, gate_index: int) -> void:
 			var child_position: Vector2 = gate["position"] + normalized_position(child_gate.get("position", Vector2.ZERO)) - child_origin + Vector2(16, 40)
 			draw_custom_child_gate(child_gate, child_position)
 	if gate["type_id"] == "MP/IO/BUTTON" and canvas_zoom >= 0.5:
-		draw_string(font, rect.position + Vector2(10, 61), "Click to pulse", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c5d0df"))
+		draw_string(font, rect.position + Vector2(10, 61), "Click to pulse", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, AppPalette.color("#c5d0df"))
 	elif gate["type_id"] == "MP/IO/LAMP" and canvas_zoom >= 0.5:
-		draw_string(font, rect.position + Vector2(10, 61), "ON" if gate["state"] else "OFF", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#ffe08a") if gate["state"] else Color("#9aa8b8"))
+		draw_string(font, rect.position + Vector2(10, 61), "ON" if gate["state"] else "OFF", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, AppPalette.color("#ffe08a") if gate["state"] else AppPalette.color("#9aa8b8"))
 	for i in range(gate["inputs"].size()):
 		var pos := port_position(gate_index, true, i)
 		var value: bool = gate["inputs"][i]
-		draw_circle(pos, PORT_RADIUS, Color("#61d49a") if value else Color("#68778e"))
+		draw_circle(pos, PORT_RADIUS, AppPalette.color("#61d49a") if value else AppPalette.color("#68778e"))
 		if canvas_zoom >= 0.5:
-			draw_string(font, pos + Vector2(12, 4), gate["input_names"][i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c5d0df"))
+			draw_string(font, pos + Vector2(12, 4), gate["input_names"][i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, AppPalette.color("#c5d0df"))
 	for i in range(gate["outputs"].size()):
 		var pos := port_position(gate_index, false, i)
 		var value: bool = gate["outputs"][i]
-		draw_circle(pos, PORT_RADIUS, Color("#f0c15b") if value else Color("#68778e"))
+		draw_circle(pos, PORT_RADIUS, AppPalette.color("#f0c15b") if value else AppPalette.color("#68778e"))
 		if canvas_zoom >= 0.5:
-			draw_string(font, pos + Vector2(-58, 4), gate["output_names"][i], HORIZONTAL_ALIGNMENT_RIGHT, 48, 12, Color("#c5d0df"))
+			draw_string(font, pos + Vector2(-58, 4), gate["output_names"][i], HORIZONTAL_ALIGNMENT_RIGHT, 48, 12, AppPalette.color("#c5d0df"))
 	if canvas_zoom >= 0.5:
 		gate_properties.draw_fields(self, gate, font)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -1041,52 +1012,52 @@ func draw_custom_child_gate(gate: Dictionary, child_position: Vector2) -> void:
 	var gate_type: String = gate.get("type_id", "")
 	var is_lamp := gate_type == "MP/IO/LAMP"
 	var is_button := gate_type == "MP/IO/BUTTON"
-	var body_color := Color("#29364b")
+	var body_color := AppPalette.color("#29364b")
 	if is_lamp and gate.get("state", true):
 		var lamp_color := Color(gate.get("lamp_color", "#FFD23F"))
 		body_color = lamp_color.darkened(0.25)
 	elif is_button:
-		body_color = Color("#42566f")
+		body_color = AppPalette.color("#42566f")
 	draw_rect(rect, body_color, true)
-	draw_rect(rect, Color("#647b99"), false, 1)
-	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 24)), Color("#344963"), true)
-	draw_string(font, rect.position + Vector2(6, 17), str(gate.get("name", "GATE")), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 12, 11, Color("#f5f7fb"))
+	draw_rect(rect, AppPalette.color("#647b99"), false, 1)
+	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 24)), AppPalette.color("#344963"), true)
+	draw_string(font, rect.position + Vector2(6, 17), str(gate.get("name", "GATE")), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 12, 11, AppPalette.color("#f5f7fb"))
 	if is_button:
-		draw_string(font, rect.position + Vector2(8, 54), "BUTTON", HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 16, 11, Color("#d8e1ee"))
+		draw_string(font, rect.position + Vector2(8, 54), "BUTTON", HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 16, 11, AppPalette.color("#d8e1ee"))
 	elif is_lamp:
-		draw_string(font, rect.position + Vector2(8, 54), "ON" if gate.get("state", true) else "OFF", HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 16, 11, Color("#ffe08a") if gate.get("state", true) else Color("#9aa8b8"))
+		draw_string(font, rect.position + Vector2(8, 54), "ON" if gate.get("state", true) else "OFF", HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 16, 11, AppPalette.color("#ffe08a") if gate.get("state", true) else AppPalette.color("#9aa8b8"))
 	for port in range(gate.get("input_names", []).size()):
 		var count: int = gate["input_names"].size()
 		var port_y := rect.position.y + 42.0 + (port + 1) * (42.0 / float(maxi(count, 1)))
-		draw_circle(Vector2(rect.position.x, port_y), 4.0, Color("#68778e"))
-		draw_string(font, Vector2(rect.position.x + 7, port_y + 4), str(gate["input_names"][port]), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 12, 9, Color("#c5d0df"))
+		draw_circle(Vector2(rect.position.x, port_y), 4.0, AppPalette.color("#68778e"))
+		draw_string(font, Vector2(rect.position.x + 7, port_y + 4), str(gate["input_names"][port]), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 12, 9, AppPalette.color("#c5d0df"))
 	for port in range(gate.get("output_names", []).size()):
 		var count: int = gate["output_names"].size()
 		var port_y := rect.position.y + 42.0 + (port + 1) * (42.0 / float(maxi(count, 1)))
-		draw_circle(Vector2(rect.end.x, port_y), 4.0, Color("#68778e"))
-		draw_string(font, Vector2(rect.end.x - 56, port_y + 4), str(gate["output_names"][port]), HORIZONTAL_ALIGNMENT_RIGHT, 48, 9, Color("#c5d0df"))
+		draw_circle(Vector2(rect.end.x, port_y), 4.0, AppPalette.color("#68778e"))
+		draw_string(font, Vector2(rect.end.x - 56, port_y + 4), str(gate["output_names"][port]), HORIZONTAL_ALIGNMENT_RIGHT, 48, 9, AppPalette.color("#c5d0df"))
 
 func _draw_wire(wire: Dictionary, selected: bool, wire_index: int) -> void:
 	var a: Vector2 = canvas_geometry.wire_starts[wire_index]
 	var b: Vector2 = canvas_geometry.wire_ends[wire_index]
 	draw_set_transform(canvas_transform_origin(), 0.0, Vector2(canvas_zoom, canvas_zoom))
 	var high: bool = simulation.output_high(wire["from_gate"], wire["from_port"]) if not simulation.dirty and not compiled_custom_components else gates[wire["from_gate"]]["outputs"][wire["from_port"]]
-	var wire_color := Color("#99752c") if high else Color("#4b596e")
+	var wire_color := AppPalette.color("#99752c") if high else AppPalette.color("#4b596e")
 	if selected:
-		wire_color = Color("#f28b82")
+		wire_color = AppPalette.color("#f28b82")
 	if canvas_geometry.orthogonal:
 		if not canvas_geometry.wire_routed[wire_index]:
 			var unresolved := wire_index < canvas_geometry.routing_index
-			var color := Color("#f28b82") if selected else (Color("#c9a66b", 0.5) if unresolved else Color("#71839d", 0.3))
+			var color := AppPalette.color("#f28b82") if selected else (AppPalette.color("#c9a66b", 0.5) if unresolved else AppPalette.color("#71839d", 0.3))
 			if unresolved:
 				draw_dashed_line(a, b, color, 3.0 if selected else 1.0, 12)
 			else:
 				draw_line(a, b, color, 3.0 if selected else 1.0)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 			return
-		wire_color = Color("#a47438") if high else Color("#895b29")
+		wire_color = AppPalette.color("#a47438") if high else AppPalette.color("#895b29")
 		if selected:
-			wire_color = Color("#f28b82")
+			wire_color = AppPalette.color("#f28b82")
 		draw_circuit_wire(canvas_geometry.wire_paths[wire_index], wire_color, 8.0, canvas_geometry.wire_core_segments[wire_index], canvas_geometry.wire_border_segments[wire_index])
 		if high and canvas_zoom >= 0.5:
 			draw_wire_signals(canvas_geometry.wire_paths[wire_index], canvas_geometry.wire_distances[wire_index])
@@ -1103,9 +1074,9 @@ func draw_circuit_wire(path: PackedVector2Array, color: Color, width: float, cor
 	if background.is_empty():
 		background = CanvasGeometry.WireGeometry.rendered_segments(path, false)
 	if canvas_zoom >= 0.5:
-		var border := Color("#59401f") if color == Color("#895b29") else color.darkened(0.25)
-		if color == Color("#a47438"):
-			border = Color("#6d5028")
+		var border := AppPalette.color("#59401f") if color == AppPalette.color("#895b29") else color.darkened(0.25)
+		if color == AppPalette.color("#a47438"):
+			border = AppPalette.color("#6d5028")
 		draw_multiline(background, border, width + 2.0)
 		draw_circle(path[0], (width + 2.0) * 0.5, border)
 		draw_circle(path[-1], (width + 2.0) * 0.5, border)
@@ -1129,7 +1100,7 @@ func draw_wire_signals(path: PackedVector2Array, distances: PackedFloat32Array) 
 		var span: float = distances[segment] - distances[segment - 1]
 		if span > 0:
 			var point := path[segment - 1].lerp(path[segment], (distance - distances[segment - 1]) / span)
-			draw_circle(point, 3.0, Color("#39ff14"))
+			draw_circle(point, 3.0, AppPalette.color("#39ff14"))
 
 func port_position(gate_id: int, input: bool, port: int) -> Vector2:
 	var gate: Dictionary = gates[gate_id]
@@ -1292,7 +1263,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			panning = false
 	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
-		if touchpad_mode:
+		if app_settings.touchpad_mode:
 			if event.position.y < toolbar_height or not is_finite(event.factor):
 				return
 			keyboard_pan_velocity = Vector2.ZERO
