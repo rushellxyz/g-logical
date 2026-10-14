@@ -37,6 +37,7 @@ const GATE_TYPES := [
 	{"id": "EDITOR/COMMENT", "name": "COMMENT", "inputs": [], "outputs": []},
 	{"id": "EDITOR/COMPONENT_INPUT", "name": "INPUT", "inputs": [], "outputs": ["OUT"]},
 	{"id": "EDITOR/COMPONENT_OUTPUT", "name": "OUTPUT", "inputs": ["IN"], "outputs": []},
+	{"id": "EDITOR/ROM_IN", "name": "ROM IN", "inputs": [], "outputs": ["OUT"]},
 	{"id": "MP/Logic/CLOCK", "name": "CLOCK", "inputs": [], "outputs": ["OUT"]},
 	{"id": "EDITOR/CLOCK_IN", "name": "CLOCK IN", "inputs": ["CLK"], "outputs": []},
 	{"id": "EDITOR/CLOCK_OUT", "name": "CLOCK OUT", "inputs": [], "outputs": ["CLK"]},
@@ -95,6 +96,8 @@ var foundry_mode := false
 var foundry_layout_mode := "Inline"
 var pending_editor_mode := ""
 var mode_confirmation: ConfirmationDialog
+var rom_confirmation: ConfirmationDialog
+var rom_file_dialog: FileDialog
 var component_name_dialog: ConfirmationDialog
 var component_name_field: LineEdit
 var port_name_dialog: ConfirmationDialog
@@ -172,6 +175,22 @@ func _ready() -> void:
 	mode_confirmation.title = "Switch editor mode"
 	mode_confirmation.confirmed.connect(_confirm_mode_switch)
 	add_child(mode_confirmation)
+	rom_confirmation = ConfirmationDialog.new()
+	rom_confirmation.title = "Program ROM inputs"
+	rom_confirmation.dialog_text = "A ROM file can initialize the placed ROM IN terminals. Choose a file?"
+	rom_confirmation.get_ok_button().text = "Yes, choose file"
+	rom_confirmation.get_cancel_button().text = "No, ignore ROM IN"
+	rom_confirmation.confirmed.connect(_on_rom_file_confirmed)
+	rom_confirmation.canceled.connect(_on_rom_file_cancelled)
+	add_child(rom_confirmation)
+	rom_file_dialog = FileDialog.new()
+	rom_file_dialog.title = "Choose ROM file"
+	rom_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	rom_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	rom_file_dialog.add_filter("*.* ; All files")
+	rom_file_dialog.file_selected.connect(_on_rom_file_selected)
+	rom_file_dialog.canceled.connect(_on_rom_file_dialog_cancelled)
+	add_child(rom_file_dialog)
 	component_name_dialog = ConfirmationDialog.new()
 	component_name_dialog.title = "Save Foundry Component"
 	component_name_field = LineEdit.new()
@@ -439,7 +458,7 @@ func unpack_selected_components() -> void:
 	connecting_wire = false
 	if foundry_mode:
 		for gate in gates:
-			if gate["type_id"] in ["MP/IO/BUTTON", "MP/IO/LAMP"]:
+			if gate["type_id"] in ["MP/IO/BUTTON", "MP/IO/LAMP", "EDITOR/ROM_IN"]:
 				set_foundry_layout("Expand")
 				break
 	status_text = "Unpacked %d custom component(s)." % indices.size()
@@ -454,6 +473,8 @@ func is_foundry_document_valid(document: Dictionary, depth: int = 0) -> bool:
 		return false
 	var layout := str(document.get("layout", "Inline"))
 	if layout not in ["Inline", "Expand"]:
+		return false
+	if layout != "Expand" and count_rom_inputs(document_gates) > 0:
 		return false
 	for gate in document_gates:
 		if not gate is Dictionary or not gate.has("type_id") or not gate.has("position") or not is_valid_position(gate["position"]):
@@ -473,6 +494,8 @@ func is_foundry_document_valid(document: Dictionary, depth: int = 0) -> bool:
 				return false
 			continue
 		if gate["type_id"] in ["MP/IO/BUTTON", "MP/IO/LAMP"] and layout != "Expand":
+			return false
+		if gate["type_id"] == "EDITOR/ROM_IN" and layout != "Expand":
 			return false
 		if gate.get("unpacked_bridge", false):
 			if gate["type_id"] not in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"] or gate["inputs"].size() != 1 or gate["outputs"].size() != 1:
@@ -931,6 +954,12 @@ func set_foundry_layout(layout: String) -> void:
 				status_text = "Remove all BUTTON and LAMP components before switching to Inline."
 				queue_redraw()
 				return
+			if gate["type_id"] == "EDITOR/ROM_IN" or (gate["type_id"] == "EDITOR/CUSTOM" and count_rom_inputs(gate.get("custom_gates", [])) > 0):
+				foundry_inline_button.set_pressed_no_signal(foundry_layout_mode == "Inline")
+				foundry_expand_button.set_pressed_no_signal(foundry_layout_mode == "Expand")
+				status_text = "Foundry components containing ROM IN require Expand mode."
+				queue_redraw()
+				return
 	foundry_layout_mode = layout
 	foundry_inline_button.set_pressed_no_signal(layout == "Inline")
 	foundry_expand_button.set_pressed_no_signal(layout == "Expand")
@@ -951,7 +980,7 @@ func rebuild_gate_toolbar() -> void:
 		if foundry_mode:
 			if type_id in ["EDITOR/COMMENT", "EDITOR/CLOCK_IN", "EDITOR/CLOCK_OUT", "EDITOR/WHITETILE"]:
 				continue
-			if type_id in ["MP/IO/BUTTON", "MP/IO/LAMP"] and foundry_layout_mode != "Expand":
+			if type_id in ["MP/IO/BUTTON", "MP/IO/LAMP", "EDITOR/ROM_IN"] and foundry_layout_mode != "Expand":
 				continue
 		elif type_id in ["EDITOR/COMPONENT_INPUT", "EDITOR/COMPONENT_OUTPUT"]:
 			continue
@@ -1882,8 +1911,8 @@ func add_gate(type_index: int) -> void:
 		if definition["id"] in ["EDITOR/COMMENT", "EDITOR/CLOCK_IN", "EDITOR/CLOCK_OUT", "EDITOR/WHITETILE"]:
 			status_text = "%s is not available in Foundry." % definition["name"]
 			return
-		if definition["id"] in ["MP/IO/BUTTON", "MP/IO/LAMP"] and foundry_layout_mode != "Expand":
-			status_text = "BUTTON and LAMP are available only in Expand mode."
+		if definition["id"] in ["MP/IO/BUTTON", "MP/IO/LAMP", "EDITOR/ROM_IN"] and foundry_layout_mode != "Expand":
+			status_text = "BUTTON, LAMP, and ROM IN are available only in Expand mode."
 			return
 	var viewport_size := get_viewport_rect().size
 	var view_center := Vector2(viewport_size.x * 0.5, toolbar_height + (viewport_size.y - toolbar_height) * 0.5)
@@ -1902,7 +1931,7 @@ func add_gate(type_index: int) -> void:
 		"lamp_color": "FFD23F",
 		"pulse_pending": false,
 		"text": "Comment",
-		"export": definition["id"] not in ["EDITOR/COMMENT", "EDITOR/CLOCK_IN", "EDITOR/CLOCK_OUT"],
+		"export": definition["id"] not in ["EDITOR/COMMENT", "EDITOR/CLOCK_IN", "EDITOR/CLOCK_OUT", "EDITOR/ROM_IN"],
 		"previous_inputs": []
 	}
 	push_undo_state()
@@ -2683,6 +2712,56 @@ func export_gunsaw() -> void:
 		status_text = "Gunsaw export is unavailable in Foundry mode. Save the component to use it in Editor mode."
 		return
 	gate_properties.commit()
+	if count_rom_inputs(gates) > 0:
+		rom_confirmation.popup_centered()
+		return
+	export_gunsaw_internal(PackedByteArray(), false)
+
+func _on_rom_file_confirmed() -> void:
+	rom_file_dialog.popup_centered_ratio(0.7)
+
+func _on_rom_file_cancelled() -> void:
+	export_gunsaw_internal(PackedByteArray(), false)
+
+func _on_rom_file_selected(path: String) -> void:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		status_text = "ROM load failed: %s." % error_string(FileAccess.get_open_error())
+		queue_redraw()
+		return
+	var expected_size := file.get_length()
+	var rom_bits := file.get_buffer(expected_size)
+	file.close()
+	if rom_bits.size() != expected_size:
+		status_text = "ROM load failed: the file could not be read completely."
+		queue_redraw()
+		return
+	export_gunsaw_internal(rom_bits, true)
+
+func _on_rom_file_dialog_cancelled() -> void:
+	status_text = "Export canceled; no ROM file was selected."
+	queue_redraw()
+
+func count_rom_inputs(source_gates: Array, depth: int = 0) -> int:
+	if depth >= CustomComponents.MAX_DEPTH:
+		return 0
+	var count := 0
+	for gate in source_gates:
+		if not gate is Dictionary:
+			continue
+		if gate.get("type_id", "") == "EDITOR/ROM_IN":
+			count += 1
+		elif gate.get("type_id", "") == "EDITOR/CUSTOM":
+			var child_gates = gate.get("custom_gates", [])
+			if child_gates is Array:
+				count += count_rom_inputs(child_gates, depth + 1)
+	return count
+
+func export_gunsaw_internal(rom_bits: PackedByteArray, use_rom_file: bool) -> void:
+	if foundry_mode:
+		status_text = "Gunsaw export is unavailable in Foundry mode. Save the component to use it in Editor mode."
+		return
+	gate_properties.commit()
 	if has_custom_components():
 		var flattened := expand_custom_components()
 		var export_gates: Array[Dictionary] = flattened["gates"]
@@ -2694,7 +2773,19 @@ func export_gunsaw() -> void:
 		var saved_wires := wires
 		gates = export_gates
 		wires = export_wires_data
-		export_gunsaw()
+		export_gunsaw_internal(rom_bits, use_rom_file)
+		gates = saved_gates
+		wires = saved_wires
+		simulation.dirty = true
+		queue_redraw()
+		return
+	if count_rom_inputs(gates) > 0:
+		var saved_gates := gates
+		var saved_wires := wires
+		var programmed := program_rom_inputs(gates, wires, rom_bits, use_rom_file)
+		gates = programmed["gates"]
+		wires = programmed["wires"]
+		export_gunsaw_internal(PackedByteArray(), false)
 		gates = saved_gates
 		wires = saved_wires
 		simulation.dirty = true
@@ -2854,6 +2945,91 @@ func export_gunsaw() -> void:
 	file.close()
 	DisplayServer.clipboard_set(encoded)
 	status_text = "Exported %d props to clipboard and %s." % [exported_count, EXPORT_PATH]
+
+func program_rom_inputs(source_gates: Array, source_wires: Array, rom_bits: PackedByteArray, use_rom_file: bool) -> Dictionary:
+	var rom_gate_indices: Array[int] = []
+	for index in range(source_gates.size()):
+		if source_gates[index].get("type_id", "") == "EDITOR/ROM_IN":
+			rom_gate_indices.append(index)
+	rom_gate_indices.sort_custom(func(left: int, right: int) -> bool:
+		var left_position: Vector2 = normalized_position(source_gates[left].get("position", Vector2.ZERO))
+		var right_position: Vector2 = normalized_position(source_gates[right].get("position", Vector2.ZERO))
+		if not is_equal_approx(left_position.y, right_position.y):
+			return left_position.y < right_position.y
+		if not is_equal_approx(left_position.x, right_position.x):
+			return left_position.x < right_position.x
+		return left < right
+	)
+	var rom_values: Dictionary = {}
+	for order in range(rom_gate_indices.size()):
+		var value := false
+		var bit_index := order
+		var byte_index := floori(float(bit_index) / 8.0)
+		if use_rom_file and byte_index < rom_bits.size():
+			value = (rom_bits[byte_index] & (1 << (7 - bit_index % 8))) != 0
+		rom_values[rom_gate_indices[order]] = value
+
+	var expanded_gates: Array[Dictionary] = []
+	var gate_map: Dictionary = {}
+	var max_gate_id := 0
+	for index in range(source_gates.size()):
+		if rom_values.has(index):
+			continue
+		var copied_gate: Dictionary = source_gates[index].duplicate(true)
+		gate_map[index] = expanded_gates.size()
+		expanded_gates.append(copied_gate)
+		max_gate_id = maxi(max_gate_id, int(copied_gate.get("id", 0)))
+
+	var has_programmed_output := false
+	if use_rom_file:
+		for wire in source_wires:
+			var source_index := int(wire.get("from_gate", -1))
+			if rom_values.get(source_index, false) and gate_map.has(int(wire.get("to_gate", -1))):
+				has_programmed_output = true
+				break
+
+	var expanded_wires: Array[Dictionary] = []
+	for wire in source_wires:
+		var source_index := int(wire.get("from_gate", -1))
+		var target_index := int(wire.get("to_gate", -1))
+		if rom_values.has(source_index):
+			if has_programmed_output and use_rom_file and rom_values[source_index] and gate_map.has(target_index):
+				expanded_wires.append({
+					"from_gate": expanded_gates.size(),
+					"from_port": 1,
+					"to_gate": int(gate_map[target_index]),
+					"to_port": int(wire["to_port"])
+				})
+			continue
+		if rom_values.has(target_index) or not gate_map.has(source_index) or not gate_map.has(target_index):
+			continue
+		var copied_wire: Dictionary = wire.duplicate(true)
+		copied_wire["from_gate"] = int(gate_map[source_index])
+		copied_wire["to_gate"] = int(gate_map[target_index])
+		expanded_wires.append(copied_wire)
+
+	if has_programmed_output:
+		var helper_index := expanded_gates.size()
+		var helper_id := max_gate_id + 1
+		expanded_gates.append({
+			"id": helper_id,
+			"type_id": "MP/Logic/SR",
+			"name": "ROM INIT",
+			"position": Vector2.ZERO,
+			"input_names": ["S", "R"],
+			"output_names": ["Q", "/Q"],
+			"inputs": [false, false],
+			"outputs": [false, false],
+			"previous_inputs": [false, false],
+			"memory": false,
+			"state": false,
+			"pulse_pending": false,
+			"export": true,
+			"rom_helper": true,
+			"gunsaw_data": {"initialQ": 0}
+		})
+		expanded_wires.append({"from_gate": helper_index, "from_port": 1, "to_gate": helper_index, "to_port": 0})
+	return {"gates": expanded_gates, "wires": expanded_wires}
 
 func white_tile_export_part(gate: Dictionary) -> Dictionary:
 	var tile_size := gate_size(gate)
