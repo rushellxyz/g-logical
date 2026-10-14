@@ -18,6 +18,8 @@ Features:
  - Selection tool to move/delete multiple gate
  - While having selection, press Ctrl-D to duplicate all gates and connections within them
  - Ctrl-Shift-D to also duplicate outputs
+ - Alt-Shift-D to also duplicate inputs
+ - Alt-Ctrl-D to also duplicate inputs and outputs
  - Physical mode in which triggers are hidden and you place tiles so you dont have to recreate everything from scratch on each export
  - Clock IN/Clock OUT components, that are just expanded to wire from clock in to all clock outs on export; there to keep your project a bit more clean
  - Multiple save slots

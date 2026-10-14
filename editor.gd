@@ -1261,8 +1261,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.ctrl_pressed and event.keycode == KEY_E:
 			export_gunsaw()
 			return
+		if event.alt_pressed and event.ctrl_pressed and event.keycode == KEY_D:
+			duplicate_selection(true, true)
+			return
+		if event.alt_pressed and event.shift_pressed and not event.ctrl_pressed and event.keycode == KEY_D:
+			duplicate_selection(true, false)
+			return
 		if event.ctrl_pressed and event.shift_pressed and event.keycode == KEY_D:
-			duplicate_selection(true)
+			duplicate_selection(false, true)
 			return
 		if event.ctrl_pressed and event.keycode == KEY_D:
 			duplicate_selection()
@@ -1981,7 +1987,7 @@ func delete_selection() -> void:
 	pending_output = {"gate": -1, "port": -1}
 	queue_redraw()
 
-func duplicate_selection(include_external_outputs := false) -> void:
+func duplicate_selection(include_external_inputs := false, include_external_outputs := false) -> void:
 	if selected_gates.is_empty():
 		status_text = "Select one or more gates to duplicate."
 		return
@@ -2012,13 +2018,15 @@ func duplicate_selection(include_external_outputs := false) -> void:
 	for wire in source_wires:
 		var from_gate := resolve_gate_index(wire["from_gate"])
 		var to_gate := resolve_gate_index(wire["to_gate"])
-		var duplicate_from_gate: int = int(gate_map.get(from_gate, -1))
-		var duplicate_to_gate: int = int(gate_map.get(to_gate, -1))
-		if duplicate_from_gate < 0 or (duplicate_to_gate < 0 and not include_external_outputs):
+		var from_is_selected := gate_map.has(from_gate)
+		var to_is_selected := gate_map.has(to_gate)
+		var should_duplicate := from_is_selected and (to_is_selected or include_external_outputs)
+		should_duplicate = should_duplicate or (to_is_selected and include_external_inputs)
+		if not should_duplicate:
 			continue
 		var duplicate_wire: Dictionary = wire.duplicate(true)
-		duplicate_wire["from_gate"] = duplicate_from_gate
-		duplicate_wire["to_gate"] = to_gate if duplicate_to_gate < 0 else duplicate_to_gate
+		duplicate_wire["from_gate"] = int(gate_map[from_gate]) if from_is_selected else from_gate
+		duplicate_wire["to_gate"] = int(gate_map[to_gate]) if to_is_selected else to_gate
 		duplicated_wires.append(duplicate_wire)
 		duplicated_wire_count += 1
 	var proposed_wires: Array = wires.duplicate(true)
@@ -2035,7 +2043,13 @@ func duplicate_selection(include_external_outputs := false) -> void:
 	selected_gates = duplicated_gates
 	selected_gate = duplicated_gates[0]
 	selected_wire = -1
-	var connection_label := "connection" if not include_external_outputs else "connection/output"
+	var connection_label := "connection"
+	if include_external_inputs and include_external_outputs:
+		connection_label = "connection/input/output"
+	elif include_external_inputs:
+		connection_label = "connection/input"
+	elif include_external_outputs:
+		connection_label = "connection/output"
 	status_text = "Duplicated %d gate%s and %d %s%s." % [
 		duplicated_gates.size(),
 		"" if duplicated_gates.size() == 1 else "s",
